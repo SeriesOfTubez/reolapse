@@ -1,0 +1,15 @@
+[Unit]
+Description=reolapse video browsing web app
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/reolapse
+ExecStart=/opt/reolapse/venv/bin/python webapp/app.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

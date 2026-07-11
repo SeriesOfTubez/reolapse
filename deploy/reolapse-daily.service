@@ -1,0 +1,9 @@
+[Unit]
+Description=Build yesterday's daily timelapse videos
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/opt/reolapse
+ExecStart=/opt/reolapse/venv/bin/python build_timelapse.py daily
+Nice=10

@@ -1,0 +1,15 @@
+[Unit]
+Description=reolapse snapshot capture loop
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/reolapse
+ExecStart=/opt/reolapse/venv/bin/python capture.py --loop
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

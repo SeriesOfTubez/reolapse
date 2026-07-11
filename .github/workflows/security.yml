@@ -1,0 +1,64 @@
+name: security
+
+# Runs the same checks we validate locally: secrets (Gitleaks), SAST (Semgrep),
+# SCA + IaC + container image (Trivy). Weekly schedule catches CVEs disclosed
+# after a commit lands. Vulnerability gates use --ignore-unfixed so the build
+# only fails on issues you can actually act on, not unfixable base-image CVEs.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1"   # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secrets:
+    name: Secrets (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history so every commit is scanned
+      - name: Gitleaks
+        run: |
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:latest \
+            detect --source=/repo --redact --exit-code 1
+
+  sast:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install semgrep
+      - name: Semgrep
+        run: |
+          semgrep scan --error --metrics=off \
+            --config p/python --config p/security-audit --config p/secrets
+
+  trivy:
+    name: SCA, IaC & image (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Trivy
+        run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+      - name: Dependency vulnerabilities (SCA)
+        run: trivy fs --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --skip-dirs venv --skip-dirs data .
+      - name: IaC / Dockerfile misconfig
+        run: trivy config --severity MEDIUM,HIGH,CRITICAL --exit-code 1 .
+      - name: Build image
+        run: docker build -t reolapse:ci .
+      - name: Image vulnerabilities
+        run: trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 reolapse:ci

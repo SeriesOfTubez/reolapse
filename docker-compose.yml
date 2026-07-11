@@ -1,0 +1,51 @@
+# ReoLapse — three services from one image: continuous capture, the build
+# scheduler, and the web UI. They share a named volume for captured data and
+# a read-only mount of your config.yaml. Secrets come from .env.
+#
+#   cp config.example.yaml config.yaml   # then edit
+#   cp .env.example .env                 # then set REOLINK_PASSWORD
+#   docker compose up -d --build
+#
+# In config.yaml keep `storage: root: ./data` so data lands on the volume.
+
+services:
+  capture:
+    build: .
+    image: reolapse:latest
+    command: python capture.py --loop
+    env_file: .env
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - data:/app/data
+    healthcheck:
+      disable: true          # not an HTTP service
+    restart: unless-stopped
+
+  scheduler:
+    build: .
+    image: reolapse:latest
+    command: python scheduler.py
+    env_file: .env
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - data:/app/data
+    depends_on:
+      - capture
+    healthcheck:
+      disable: true          # not an HTTP service
+    restart: unless-stopped
+
+  web:
+    build: .
+    image: reolapse:latest
+    command: python webapp/app.py
+    env_file: .env
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - data:/app/data
+    restart: unless-stopped
+
+volumes:
+  data:

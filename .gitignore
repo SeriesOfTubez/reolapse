@@ -1,0 +1,26 @@
+# --- Secrets & local config (NEVER commit) ---
+.env
+config.yaml
+
+# --- Captured frames & generated videos ---
+data/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+*.egg-info/
+
+# --- Editor / OS / tooling ---
+.claude/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# --- Security scan outputs ---
+*.sarif
+scan-results/
+gitleaks-report.json
+trivy-report.json

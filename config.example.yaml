@@ -1,0 +1,101 @@
+# Copy this file to config.yaml and edit it for your setup.
+# config.yaml is gitignored. Secrets belong in .env, not here — reference them
+# as ${VAR} (see the password fields below and .env.example).
+
+# ---------------------------------------------------------------------------
+# Cameras
+# ---------------------------------------------------------------------------
+# Each camera can be reached two ways:
+#   * Directly       host = camera IP,  channel = 0   (preferred: full-res
+#                    main-stream snapshots, no NVR dependency)
+#   * Through an NVR  host = NVR IP,     channel = the camera's NVR channel
+#                    (use this if your cameras sit on the NVR's isolated PoE
+#                    network; one credential covers every channel)
+#
+# `name` is used in folder/file names — letters, digits and dashes only.
+cameras:
+  - name: front-yard
+    host: 192.168.1.50        # camera IP, or NVR IP
+    channel: 0                # 0 talking to a camera directly; NVR channel otherwise
+    username: admin
+    password: "${REOLINK_PASSWORD}"
+    https: true               # older firmware may only offer http (set false)
+    verify_ssl: false         # Reolink ships self-signed certs; keep false for https
+
+  # Example: a second camera pulled from the same NVR on channel 1
+  # - name: back-yard
+  #   host: 192.168.1.50
+  #   channel: 1
+  #   username: admin
+  #   password: "${REOLINK_PASSWORD}"
+  #   https: true
+  #   verify_ssl: false
+
+  # Example: an auto-tracking PTZ camera. Frames captured while it is away
+  # from its home position are quarantined (kept, but excluded from videos).
+  # Find the pan/tilt values by pointing it home and querying GetPtzCurPos.
+  # - name: driveway
+  #   host: 192.168.1.51
+  #   channel: 0
+  #   username: admin
+  #   password: "${REOLINK_PASSWORD}"
+  #   https: true
+  #   verify_ssl: false
+  #   ptz_home:
+  #     channel: 0            # queried host defaults to the camera's own host;
+  #     host: 192.168.1.51    # set explicitly (camera IP) if you need the tilt
+  #     pan: 1071             # axis — an NVR only relays pan
+  #     # tilt: 79
+  #     tolerance: 10
+
+capture:
+  interval_seconds: 60        # one frame/minute -> ~48s daily video at 30 fps
+  start_time: ""              # e.g. "05:30" to skip night frames; empty = all day
+  end_time: ""                # e.g. "21:30"
+  timeout_seconds: 15
+
+storage:
+  root: ./data                # relative paths resolve next to config.yaml
+  keep_snapshots_days: 4      # prune a day's frames this many days after its
+                              # daily video is built; 0 = keep frames forever
+
+daily_video:
+  fps: 30
+  crf: 20                     # x264 quality; lower = better/bigger (18-23 sensible)
+  deflicker_size: 10          # frames in the deflicker averaging window; 0 disables
+  max_height: 1440            # downscale taller sources; 0 = keep original height
+
+yearly:
+  archive_frames_per_day: 24  # frames kept forever per day; the pool the yearly
+                              # video is rendered from (archive more than you render)
+  video_frames_per_day: 10    # 10/day x 365 @ 30 fps ~= a 2-minute year
+  video_window: "08:00-16:30" # render only daylight hours; "" = whole day
+  fps: 30
+  crf: 20
+  deflicker_size: 15          # wider window: day-to-day exposure varies more
+
+# ---------------------------------------------------------------------------
+# Weather tagging & storm burst mode (optional; US-only alert source)
+# ---------------------------------------------------------------------------
+# Polls NWS alerts + Open-Meteo (both free, no API keys) and computes moon
+# events locally. Active tags are logged and embedded in each frame; storms
+# and snow trigger faster capture.
+weather:
+  enabled: false              # set true and fill in your location to use it
+  latitude: 0.0               # your approximate location (any point in your
+  longitude: 0.0              # NWS alert county works)
+  poll_minutes: 5
+  burst_tags: [storm, snow]   # tags that switch capture to the burst interval
+  burst_interval_seconds: 10  # use a value that divides interval_seconds
+  # force_tags: [storm]       # testing hook: pretend these are always active
+
+events_video:
+  tags: [storm, snow]         # render a clip per active span of these tags
+  min_frames: 30
+  fps: 30
+  crf: 20
+  deflicker_size: 0           # off: deflicker would smooth away lightning flashes
+
+webapp:
+  host: 0.0.0.0
+  port: 8080

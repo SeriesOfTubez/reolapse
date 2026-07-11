@@ -1,0 +1,16 @@
+# Never bake secrets or local state into the image
+.env
+config.yaml
+data/
+
+# Local dev cruft
+.git/
+.gitignore
+venv/
+.venv/
+__pycache__/
+*.pyc
+.claude/
+deploy/
+scan-results/
+*.md

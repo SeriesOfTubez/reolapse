@@ -1,0 +1,48 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ReoLapse logo">
+  <defs>
+    <linearGradient id="rl-sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1d2b55"/>
+      <stop offset="0.46" stop-color="#6a4a97"/>
+      <stop offset="0.78" stop-color="#e07a5f"/>
+      <stop offset="1" stop-color="#f4a259"/>
+    </linearGradient>
+    <radialGradient id="rl-sun" cx="0.5" cy="0.42" r="0.62">
+      <stop offset="0" stop-color="#fff6d5"/>
+      <stop offset="0.5" stop-color="#ffd166"/>
+      <stop offset="1" stop-color="#f79a3e"/>
+    </radialGradient>
+    <clipPath id="rl-clip"><rect x="24" y="24" width="464" height="464" rx="108"/></clipPath>
+  </defs>
+
+  <rect x="24" y="24" width="464" height="464" rx="108" fill="url(#rl-sky)"/>
+
+  <g clip-path="url(#rl-clip)">
+    <!-- soft sun halo -->
+    <circle cx="256" cy="230" r="172" fill="#ffd98a" opacity="0.16"/>
+
+    <!-- timelapse sun-path: dots rising to the sun and setting again -->
+    <g fill="#ffe6a3">
+      <circle cx="84"  cy="332" r="9"  opacity="0.42"/>
+      <circle cx="136" cy="286" r="11" opacity="0.58"/>
+      <circle cx="190" cy="252" r="12" opacity="0.76"/>
+      <circle cx="322" cy="252" r="12" opacity="0.76"/>
+      <circle cx="376" cy="286" r="11" opacity="0.58"/>
+      <circle cx="428" cy="332" r="9"  opacity="0.42"/>
+    </g>
+
+    <!-- sun -->
+    <circle cx="256" cy="226" r="62" fill="url(#rl-sun)"/>
+
+    <!-- horizon: hill + pine silhouettes -->
+    <path d="M24 374 C 120 346, 200 360, 256 359 C 322 360, 400 350, 488 376 L488 488 L24 488 Z" fill="#180f2c"/>
+    <g fill="#241640">
+      <path d="M150 360 l24 -50 l24 50 z"/>
+      <path d="M188 361 l28 -60 l28 60 z"/>
+      <path d="M320 359 l24 -50 l24 50 z"/>
+    </g>
+  </g>
+
+  <!-- framing edge + faint lens ring -->
+  <circle cx="256" cy="256" r="150" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="10"/>
+  <rect x="24" y="24" width="464" height="464" rx="108" fill="none" stroke="#ffffff" stroke-opacity="0.16" stroke-width="6"/>
+</svg>
