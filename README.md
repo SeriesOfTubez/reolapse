@@ -59,6 +59,10 @@ through a bundled single-page web app.
   there are enough of them to need one.
 - **Accent color.** Pick from six preset colors (`webapp.accent_color`) —
   amber (default), green, blue, red, purple, yellow.
+- **Config page.** Edit `config.yaml` from the browser — every setting except
+  secrets, which stay read-only and env-var-only. Includes network discovery
+  to find Reolink cameras/NVRs on your LAN. See
+  [Config page & network discovery](#config-page--network-discovery).
 - **Storage dashboard.** A Storage tab shows per-camera and system-wide disk
   usage, growth rate, average build time, current retention settings, and a
   shortage/excess forecast — updated automatically after every nightly build.
@@ -211,6 +215,45 @@ not: reference them as `${VAR}` and put the values in `.env`. Highlights:
 | `webapp.accent_color` | UI accent color: `amber` (default), `green`, `blue`, `red`, `purple`, `yellow` |
 
 See the inline comments in `config.example.yaml` for the full reference.
+
+## Config page & network discovery
+
+The **Config** tab edits `config.yaml` from the browser instead of by hand —
+every setting above except secrets (see below) is exposed as a checkbox,
+dropdown, radio, or text field.
+
+- **Passwords are always read-only in the UI.** You'll see the `${VAR_NAME}`
+  placeholder, never a real value, and the save endpoint rejects anything
+  that isn't an env-var reference — a literal password typed into the form
+  can't end up in `config.yaml`.
+- **Fields the UI doesn't have a control for are preserved as-is.** The page
+  edits the config it fetched in place rather than rebuilding it from
+  scratch, so things like a camera's `ptz_home` block or
+  `events_video.deflicker_by_tag` survive a save untouched even though
+  there's no form control for them yet.
+- **Saving does not restart anything.** The web UI picks up most changes on
+  next page load (accent color is immediate), but `capture.py` and
+  `build_timelapse.py` are separate processes — restart
+  `reolapse-capture`/`reolapse-web` (or `docker compose restart`) to apply a
+  saved change there.
+- **Comments are not preserved.** This editor round-trips the YAML as data,
+  not text, so saving from the UI strips out `config.yaml`'s hand-written
+  comments. A backup of the previous file is written to `config.yaml.bak`
+  before every save.
+- **Network discovery** (inside the Cameras section) scans your `/24` for
+  Reolink devices and lists the ones it finds. An unauthenticated probe can
+  only confirm a device is there, not what it is — click **Identify & add**
+  on a result, supply credentials, and it fetches the real model/name/channel
+  list before adding anything. The credentials you type there are used for
+  that one lookup only and are never saved; you still need to add the real
+  password to `.env` yourself before restarting capture. If a scan seems to
+  miss a device, try it again — the first scan after a service restart can
+  occasionally undercount on constrained hardware (observed on a 1-vCPU
+  reference VM; consistently found everything on immediate re-runs).
+  Discovery only sees whatever network the server itself is on — inside
+  Docker's default bridge network, that's the container's private subnet,
+  not your LAN; run outside Docker or add `network_mode: host` if you want
+  discovery to work in a container.
 
 ## Storage estimates
 
@@ -422,6 +465,16 @@ decision. The sunrise/sunset approach above doesn't have that problem.
   your home network, so authentication was not a priority for MVP release.
   It may get added later if there's enough demand — open an issue if that's
   you.
+- **The Config page can write `config.yaml` and scan your network — the
+  no-auth warning above applies doubly to it.** Anyone who can reach the app
+  can reconfigure your cameras or trigger a network scan; the LAN-only
+  posture is what protects this, not anything in the app itself. The write
+  endpoint does reject literal passwords (only `${VAR}` references are
+  accepted) and validates structure before touching the file, and its
+  `Content-Type: application/json` requirement means a plain cross-origin
+  `<form>` POST from some other site can't trigger it — but a malicious page
+  making a same-network JSON `fetch()` still could, same as it could hit any
+  other unauthenticated route here.
 - Credentials live in `.env` (gitignored), never in `config.yaml`.
 - Prefer a **dedicated, least-privilege** camera/NVR account for ReoLapse. The
   Snap API passes credentials as URL parameters, so avoid `&`, `#`, `%` in that

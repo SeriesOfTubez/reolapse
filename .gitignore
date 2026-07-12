@@ -1,6 +1,7 @@
 # --- Secrets & local config (NEVER commit) ---
 .env
 config.yaml
+config.yaml.bak
 
 # --- Captured frames & generated videos ---
 data/
