@@ -82,7 +82,7 @@ Other models exposing the same API should work; reports welcome.
                      │
    build_timelapse.py│  (nightly + weekly)
                      ├─►  data/videos/<cam>/daily/<date>.mp4
-                     ├─►  data/videos/<cam>/events/<date>_storm.mp4
+                     ├─►  data/videos/<cam>/events/<date>_<tag>.mp4
                      ├─►  data/yearly_frames/<cam>/<year>/…   (kept forever)
                      └─►  data/videos/<cam>/yearly/<year>.mp4
                      │
@@ -159,7 +159,7 @@ not: reference them as `${VAR}` and put the values in `.env`. Highlights:
 | `daily_video.deflicker_size` | Deflicker window; `0` disables |
 | `yearly.video_frames_per_day` / `video_window` | Pacing of the yearly video |
 | `weather.*` | Storm/snow burst capture + condition tagging (US alerts) |
-| `events_video.tags` | Which tags get their own event clips |
+| `events_video.tags` | Which tags get their own `<date>_<tag>.mp4` clip (default `storm`, `snow`; any tag works, including moon events) |
 
 See the inline comments in `config.example.yaml` for the full reference.
 
