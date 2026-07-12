@@ -18,6 +18,18 @@ from common import load_config, videos_dir  # noqa: E402
 VIDEO_TYPES = ("daily", "yearly", "events")
 US_ZIP_RE = re.compile(r"^\d{5}$")
 
+# name -> (accent, accent-strong, accent-quiet rgba). All calibrated to
+# roughly the same lightness/saturation as the amber default so a single
+# fixed dark --accent-contrast text color stays readable on every option.
+ACCENT_COLORS = {
+    "amber":  ("#f2a94e", "#f79a3e", "rgba(242, 169, 78, 0.14)"),
+    "green":  ("#6fcf97", "#57bd82", "rgba(111, 207, 151, 0.14)"),
+    "blue":   ("#6fa8f5", "#5b93e8", "rgba(111, 168, 245, 0.14)"),
+    "red":    ("#f2705b", "#e85940", "rgba(242, 112, 91, 0.14)"),
+    "purple": ("#b18cf2", "#9d72e8", "rgba(177, 140, 242, 0.14)"),
+    "yellow": ("#e8d44a", "#dcc430", "rgba(232, 212, 74, 0.14)"),
+}
+
 
 def config_warnings(cfg):
     """Cheap, network-free config sanity checks surfaced in the web UI."""
@@ -46,7 +58,16 @@ def create_app(cfg):
 
     @app.get("/")
     def index():
-        return app.send_static_file("index.html")
+        html = (Path(app.static_folder) / "index.html").read_text(encoding="utf-8")
+        name = (cfg.get("webapp") or {}).get("accent_color", "amber")
+        accent, strong, quiet = ACCENT_COLORS.get(name, ACCENT_COLORS["amber"])
+        # A tiny override block placed right before </head>: same specificity
+        # as the stylesheet's own :root block, so it wins by cascade order
+        # without touching the static file or needing a templating engine.
+        override = (f"<style>:root {{ --accent: {accent}; "
+                    f"--accent-strong: {strong}; --accent-quiet: {quiet}; }}</style>")
+        html = html.replace("</head>", override + "</head>")
+        return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
     @app.get("/api/videos")
     def list_videos():

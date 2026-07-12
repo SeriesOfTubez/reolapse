@@ -55,6 +55,10 @@ through a bundled single-page web app.
   through one Reolink NVR with a single credential.
 - **Bundled web UI.** Browse Daily / Yearly / Event videos per camera, with
   playback-speed controls and downloads. Range requests supported for seeking.
+  Daily/event videos are grouped into a collapsible year/month tree once
+  there are enough of them to need one.
+- **Accent color.** Pick from six preset colors (`webapp.accent_color`) —
+  amber (default), green, blue, red, purple, yellow.
 - **Storage dashboard.** A Storage tab shows per-camera and system-wide disk
   usage, growth rate, average build time, current retention settings, and a
   shortage/excess forecast — updated automatically after every nightly build.
@@ -204,6 +208,7 @@ not: reference them as `${VAR}` and put the values in `.env`. Highlights:
 | `events_video.tags` | Which tags get their own `<date>_<tag>.mp4` clip (default `storm`, `snow`; any tag works, including moon events) |
 | `events_video.deflicker_size` / `deflicker_by_tag` | Deflicker for event clips — off by default (protects lightning in storm clips), overridable per tag (e.g. enable for `snow`) |
 | `events_video.retention_days` | Delete an event clip this many days after its date; `0` = forever |
+| `webapp.accent_color` | UI accent color: `amber` (default), `green`, `blue`, `red`, `purple`, `yellow` |
 
 See the inline comments in `config.example.yaml` for the full reference.
 

@@ -122,6 +122,46 @@
   .vid-item.active { background: var(--accent-quiet); color: var(--accent); }
   .vid-item .size { color: var(--text-2); font-size: var(--fs-xs); white-space: nowrap; }
 
+  .year-group, .month-group { border: none; }
+  .year-group > summary, .month-group > summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    list-style: none;
+    color: var(--text-1);
+    font-weight: var(--fw-medium);
+  }
+  .year-group > summary::-webkit-details-marker,
+  .month-group > summary::-webkit-details-marker { display: none; }
+  .year-group > summary:hover, .month-group > summary:hover { background: var(--surface-1); }
+  .year-group > summary::before {
+    content: "\25B8";
+    display: inline-block;
+    margin-right: var(--space-2);
+    color: var(--text-3);
+    transition: transform var(--transition);
+  }
+  .year-group[open] > summary::before { transform: rotate(90deg); }
+  .month-group { margin-left: var(--space-2); }
+  .month-group > summary {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-regular);
+    color: var(--text-2);
+  }
+  .month-group > summary::before {
+    content: "\25B8";
+    display: inline-block;
+    margin-right: var(--space-2);
+    font-size: var(--fs-xs);
+    transition: transform var(--transition);
+  }
+  .month-group[open] > summary::before { transform: rotate(90deg); }
+  .month-group .vid-item { margin-left: var(--space-4); }
+  .group-count { color: var(--text-3); font-size: var(--fs-xs); font-weight: var(--fw-regular); }
+
   #player-area {
     flex: 1;
     min-width: 0;
@@ -315,19 +355,74 @@ document.getElementById("types").addEventListener("click", e => {
   refresh();
 });
 
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function makeVidItem(v) {
+  const div = document.createElement("div");
+  div.className = "vid-item";
+  div.innerHTML = `<span>${v.label}</span><span class="size">${v.size_mb} MB</span>`;
+  div.onclick = () => play(v, div);
+  return div;
+}
+
 function renderList() {
   const list = state.videos.filter(v => v.camera === state.camera && v.type === state.type);
   const box = document.getElementById("sidebar");
   box.innerHTML = "";
-  list.forEach(v => {
-    const div = document.createElement("div");
-    div.className = "vid-item";
-    div.innerHTML = `<span>${v.label}</span><span class="size">${v.size_mb} MB</span>`;
-    div.onclick = () => play(v, div);
-    box.appendChild(div);
-  });
+  let firstEl = null;
+
+  // Daily/event labels start with YYYY-MM-DD, so they group naturally by
+  // year and month. Yearly labels are just a year — nothing to group.
+  if (state.type === "yearly") {
+    list.forEach(v => {
+      const el = makeVidItem(v);
+      firstEl = firstEl || el;
+      box.appendChild(el);
+    });
+  } else {
+    const now = new Date();
+    const curYear = String(now.getFullYear());
+    const curMonth = String(now.getMonth() + 1).padStart(2, "0");
+    const groups = new Map();  // year -> Map(month -> videos[])
+    list.forEach(v => {
+      const m = v.label.match(/^(\d{4})-(\d{2})/);
+      const year = m ? m[1] : "Other";
+      const month = m ? m[2] : "00";
+      if (!groups.has(year)) groups.set(year, new Map());
+      const yearMap = groups.get(year);
+      if (!yearMap.has(month)) yearMap.set(month, []);
+      yearMap.get(month).push(v);
+    });
+
+    for (const year of groups.keys()) {
+      const yearMap = groups.get(year);
+      const yearCount = [...yearMap.values()].reduce((n, arr) => n + arr.length, 0);
+      const yearEl = document.createElement("details");
+      yearEl.className = "year-group";
+      yearEl.open = year === curYear;
+      yearEl.innerHTML = `<summary><span>${year}</span><span class="group-count">${yearCount}</span></summary>`;
+
+      for (const month of yearMap.keys()) {
+        const videos = yearMap.get(month);
+        const monthEl = document.createElement("details");
+        monthEl.className = "month-group";
+        monthEl.open = year === curYear && month === curMonth;
+        const monthName = month === "00" ? "Undated" : MONTH_NAMES[parseInt(month, 10) - 1];
+        monthEl.innerHTML = `<summary><span>${monthName}</span><span class="group-count">${videos.length}</span></summary>`;
+        videos.forEach(v => {
+          const el = makeVidItem(v);
+          firstEl = firstEl || el;
+          monthEl.appendChild(el);
+        });
+        yearEl.appendChild(monthEl);
+      }
+      box.appendChild(yearEl);
+    }
+  }
+
   if (list.length) {
-    play(list[0], box.firstChild);
+    play(list[0], firstEl);
   } else {
     document.getElementById("player-area").innerHTML =
       `<div id="empty">No ${state.type} videos yet${state.camera ? " for " + state.camera : ""}.<br>
