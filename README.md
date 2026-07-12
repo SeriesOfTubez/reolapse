@@ -31,8 +31,11 @@ through a bundled single-page web app.
   the yearly video is rendered from a configurable, re-tunable subset
   (e.g. 10 frames/day within daylight hours ≈ a 2-minute year).
 - **Weather-aware storm bursts.** Polls NWS alerts + Open-Meteo (free, no API
-  keys) and computes moon events locally. During storms/snow it captures every
-  10s instead of every 60s, and the nightly build cuts a per-storm clip.
+  keys). During storms/snow it captures every 10s instead of every 60s, and
+  the nightly build cuts a per-storm clip.
+- **Lunar event detection.** Computes full/blue/harvest moons and lunar
+  eclipses (blood moon = total) locally via Skyfield — no location or API
+  needed.
 - **Frame tagging & metadata.** Active conditions (`storm`, `snow`, `rain`,
   `full-moon`, `blue-moon`, `harvest-moon`, `blood-moon`, `lunar-eclipse`) are logged and embedded in each
   JPEG, so the data stays self-describing and searchable later.
@@ -158,7 +161,7 @@ not: reference them as `${VAR}` and put the values in `.env`. Highlights:
 | `storage.keep_snapshots_days` | Retention for raw frames after their video builds |
 | `daily_video.deflicker_size` | Deflicker window; `0` disables |
 | `yearly.video_frames_per_day` / `video_window` | Pacing of the yearly video |
-| `weather.*` | Storm/snow burst capture + condition tagging (US alerts) |
+| `weather.*` | Storm/snow burst capture + condition tagging (US alerts); also gates lunar event detection |
 | `events_video.tags` | Which tags get their own `<date>_<tag>.mp4` clip (default `storm`, `snow`; any tag works, including moon events) |
 
 See the inline comments in `config.example.yaml` for the full reference.
@@ -179,14 +182,26 @@ python webapp/app.py            # serve the web UI
 ## Weather tagging & storm bursts
 
 With `weather.enabled: true` and your location set (`zip`, or `latitude`/`longitude`), capture polls
-NWS + Open-Meteo every `poll_minutes`. Active tags are appended to
-`data/conditions/<date>.jsonl` and embedded in each frame as a JPEG comment
-(`{"tags":["storm"]}`, visible in exiftool). Storms/snow trigger burst capture,
-and the nightly build renders a clip per event span into the **Events** tab
-(deflicker off, so lightning flashes aren't smoothed away). Moon events —
-including blood moons (total lunar eclipses) — are computed locally with
-[Skyfield](https://rhodesmill.org/skyfield/); the JPL ephemeris it needs
-(`de421.bsp`, ~17 MB) downloads once on first run into `data/ephemeris/`.
+NWS + Open-Meteo every `poll_minutes` for storm/snow/rain conditions. Active
+tags are appended to `data/conditions/<date>.jsonl` and embedded in each frame
+as a JPEG comment (`{"tags":["storm"]}`, visible in exiftool). Storms/snow
+trigger burst capture, and the nightly build renders a clip per event span
+into the **Events** tab (deflicker off, so lightning flashes aren't smoothed
+away).
+
+## Lunar event detection
+
+Separately from weather alerts, ReoLapse computes real moon events — full
+moon, blue moon, harvest moon, and lunar eclipses (blood moon = total,
+partial otherwise) — using [Skyfield](https://rhodesmill.org/skyfield/) and a
+local JPL ephemeris (`de421.bsp`, ~17 MB, downloaded once into
+`data/ephemeris/`). This needs no location: `weather.enabled: true` turns it
+on even without a `zip`/`latitude`/`longitude` set.
+
+Lunar tags (`full-moon`, `blue-moon`, `harvest-moon`, `blood-moon`,
+`lunar-eclipse`) are logged and embedded the same way as weather tags, but
+they're metadata only by default — they don't trigger burst capture. Add them
+to `events_video.tags` if you want an automatic clip (e.g. `2026-03-03_blood-moon.mp4`).
 
 ## PTZ cameras
 
