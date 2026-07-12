@@ -52,8 +52,12 @@ through a bundled single-page web app.
 - **Bundled web UI.** Browse Daily / Yearly / Event videos per camera, with
   playback-speed controls and downloads. Range requests supported for seeking.
 - **Storage dashboard.** A Storage tab shows per-camera and system-wide disk
-  usage and daily growth rate, updated automatically after every nightly
-  build — see [Storage estimates](#storage-estimates).
+  usage, growth rate, average build time, current retention settings, and a
+  shortage/excess forecast — updated automatically after every nightly build.
+  See [Storage estimates](#storage-estimates).
+- **Configurable retention for every video tier.** Daily, yearly, and event
+  videos default to being kept forever, but each has its own independent
+  retention option if you'd rather bound disk usage.
 - **Runs anywhere.** A Linux VM with systemd units, or Docker Compose.
 - **Secrets stay out of the repo.** Credentials live in `.env`, referenced from
   config as `${VAR}`.
@@ -183,14 +187,18 @@ not: reference them as `${VAR}` and put the values in `.env`. Highlights:
 | `cameras[].host` / `channel` | Camera IP + `0`, or NVR IP + channel number |
 | `cameras[].ptz_home` | Quarantine frames taken off a PTZ camera's home position |
 | `capture.interval_seconds` | Base capture cadence (default 60) |
-| `capture.start_time`/`end_time` | Optional daily capture window |
+| `capture.start_time`/`end_time` | Optional fixed daily capture window |
+| `capture.daylight_window` | Capture only around actual sunrise/sunset instead of a fixed clock window — see [Night capture & IR cameras](#night-capture--ir-cameras) |
 | `storage.keep_snapshots_days` | Retention for raw frames after their video builds |
 | `daily_video.deflicker_size` | Deflicker window; `0` disables |
+| `daily_video.retention_days` | Delete a daily video this many days after its date; `0` = forever |
 | `yearly.video_frames_per_day` / `video_window` | Pacing of the yearly video |
+| `yearly.retention_years` | Delete a yearly video once it's this many years old; `0` = forever. Cheap to set low — see [Storage estimates](#storage-estimates) |
 | `events.weather_enabled` | Storm/snow/rain tagging + burst capture (needs `events.zip` or `latitude`/`longitude`) |
 | `events.lunar_enabled` | Moon-event tagging — no location required |
 | `events_video.tags` | Which tags get their own `<date>_<tag>.mp4` clip (default `storm`, `snow`; any tag works, including moon events) |
 | `events_video.deflicker_size` / `deflicker_by_tag` | Deflicker for event clips — off by default (protects lightning in storm clips), overridable per tag (e.g. enable for `snow`) |
+| `events_video.retention_days` | Delete an event clip this many days after its date; `0` = forever |
 
 See the inline comments in `config.example.yaml` for the full reference.
 
@@ -215,19 +223,42 @@ formula. For a precise number, check the actual size of a few files in
 `data/snapshots/<camera>/` and multiply by how many frames/day you'll capture
 (`86400 / capture.interval_seconds`, or less if `start_time`/`end_time` is set).
 
-What accumulates and what doesn't:
+What accumulates and what doesn't, and how to bound each:
 
 - **Raw snapshots** are a *rolling window* — pruned `storage.keep_snapshots_days`
-  after each day's video builds, so this cost is bounded, not permanent.
-- **Daily videos, yearly archive frames, and event clips are kept forever**
-  by default (there's no built-in retention for them — see
-  [Roadmap](#roadmap--ideas)). This is the number that actually matters for
-  long-term planning. In the reference 3-camera deployment above, daily
-  videos alone grow by **~0.9 GB/day** — roughly **28 GB/month** or **340
-  GB/year** — and that's before adding any storm/snow event clips or a fourth
-  camera.
-- The yearly archive (one JPEG/hour/camera, kept forever) is comparatively
-  tiny: well under 100 MB/day across 3 cameras.
+  after each day's video builds, so this cost is already bounded by default.
+- **Daily videos, yearly videos, and event clips default to forever** (`0` in
+  `daily_video.retention_days`, `yearly.retention_years`,
+  `events_video.retention_days`) but each is independently configurable. In
+  the reference 3-camera deployment, daily videos alone grow by **~0.9
+  GB/day** — roughly **28 GB/month** or **340 GB/year** — unbounded by
+  default, before adding storm/snow clips or a fourth camera.
+- **Yearly *archive frames* (`data/yearly_frames/`) are never prunable, by
+  design** — that's the permanent, irreplaceable source the yearly video is
+  built from. This is why pruning a *yearly video* is cheap and safe: its
+  frames are untouched, so `build_timelapse.py yearly --year YYYY`
+  regenerates it any time. The frame archive itself is small regardless
+  (well under 100 MB/day across 3 cameras) — it's not what threatens your disk.
+
+### Retention & the storage forecast
+
+The Storage tab shows your **current retention settings** for all four tiers
+side by side, plus a **forecast**: it computes the eventual steady-state size
+of every tier that has a retention limit set, and a growth rate for whatever
+doesn't (the yearly archive frames always contribute here, since they can't
+be bounded). From that it reports one of three verdicts against your current
+free disk space:
+
+- **Runway** — some tier still grows forever; shows how long until disk
+  fills at the current rate (e.g. "~20 days").
+- **Headroom** — every tier is bounded and there's room to spare once each
+  reaches its ceiling.
+- **Shortage** — the bounded tiers' ceilings alone already exceed your free
+  space, before any unbounded growth is even considered.
+
+This recalculates after every nightly build, so it tracks reality as your
+retention settings, camera count, or event frequency change — no manual math
+required.
 
 ## Performance
 
@@ -250,6 +281,10 @@ If build time is a problem before you can add cores: lower `daily_video.max_heig
 (fewer pixels to encode) or `capture.interval_seconds` (fewer frames/day) —
 both are configurable. The ffmpeg `-preset` is currently hardcoded to
 `medium`; making it configurable is a reasonable ask if you need it.
+
+The Storage tab tracks your **own** build times (an "avg build time" card,
+averaged over the last 60 nightly builds) — that's the number to trust for
+your actual hardware and camera count, not the reference figures above.
 
 ## Usage
 
@@ -317,6 +352,37 @@ relays only pan (usually enough). Set `ptz_home.host` to the camera's own IP if
 you need the tilt axis. The check fails open — a position-query error keeps the
 frame.
 
+## Night capture & IR cameras
+
+If a camera relies on IR illumination at night, a 24-hour daily timelapse
+will show a jarring color-to-black-and-white-and-back transition at the start
+and end of every night — deflicker smooths *exposure* flicker, not a full
+color-mode switch. Two ways to avoid it:
+
+- **Disable IR** if the scene has enough ambient light without it (street
+  lights, a porch light, etc.) — the camera stays in color all night, at the
+  cost of more visible sensor noise in the dark. This is the reference
+  deployment's setup and it works well; see the [Weather tagging](#weather-tagging--storm-bursts)
+  and [Lunar event detection](#lunar-event-detection) sections above for why
+  full 24-hour color capture is worth having if you can.
+- **Capture only during daylight** with `capture.daylight_window` if IR needs
+  to stay on. Unlike a fixed `start_time`/`end_time`, this is computed fresh
+  every day from real sunrise/sunset for your location (`events.zip` or
+  `latitude`/`longitude`, independent of whether weather/lunar tagging is
+  enabled), so it tracks the seasons instead of drifting out of sync with
+  them. `buffer_minutes` extends the window a bit past sunrise/sunset on each
+  end, since IR typically doesn't kick in the instant the sun sets — tune it
+  down if you still catch IR frames, or up if you're cutting off usable
+  daylight.
+
+We looked at a third option — asking the camera directly whether it's
+currently in color or IR mode via `GetIsp`'s `dayNight` field — but that
+field is the camera's **configured mode** (`Auto`/`Color`/`Black&White`), not
+a live readout of which one is currently active. For a camera left on
+`Auto` (the normal case), querying it just returns `"Auto"` and tells you
+nothing about the moment-to-moment state, so it can't drive a per-frame
+decision. The sunrise/sunset approach above doesn't have that problem.
+
 ## Security
 
 - **There is no authentication.** The web UI has no login, no access control,
@@ -360,8 +426,9 @@ judge for yourself rather than take it on faith:
 
 ## Roadmap / ideas
 
-- Re-encode old dailies at a lower bitrate to reclaim space (daily/yearly/event
-  videos have no retention policy today — see [Storage estimates](#storage-estimates)).
+- Re-encode old dailies at a lower bitrate instead of deleting them outright,
+  as an alternative to `daily_video.retention_days` — see
+  [Storage estimates](#storage-estimates).
 - All-sky / long-exposure night camera support (Raspberry Pi HQ + Allsky).
 - Object-storage (S3/Garage) backend for videos.
 - Parallelize daily builds across cameras (currently sequential — see

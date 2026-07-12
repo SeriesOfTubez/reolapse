@@ -181,6 +181,22 @@
   }
 
   #storage-view { width: 100%; max-width: 760px; }
+  .forecast-banner {
+    margin: var(--space-4) 0;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    background: var(--surface-1);
+  }
+  .forecast-title { font-size: 16px; font-weight: var(--fw-semibold); margin-bottom: var(--space-1); }
+  .forecast-detail { color: var(--text-2); font-size: var(--fs-sm); }
+  .forecast-runway { border-color: var(--accent); }
+  .forecast-runway .forecast-title { color: var(--accent); }
+  .forecast-excess { border-color: #4caf7d; }
+  .forecast-excess .forecast-title { color: #4caf7d; }
+  .forecast-shortage { border-color: #e5534b; }
+  .forecast-shortage .forecast-title { color: #e5534b; }
+  .retention-line { color: var(--text-2); font-size: var(--fs-xs); margin-bottom: var(--space-2); }
   .stat-cards {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -362,12 +378,38 @@ async function renderStorage() {
   }
 
   const s = data.system;
+  const r = s.retention || {};
+  const f = s.forecast || {};
+  const b = s.build_time || {};
+  const forever = days => !days;
+
   const cards = [
     ["Disk used", `${s.disk_used_pct}%`, `${s.disk_free_gb} GB free of ${s.disk_total_gb} GB`],
     ["Snapshots (rolling)", fmtGB(s.snapshots_gb), `+${fmtGB(s.snapshots_gb_per_day)}/day`],
-    ["Daily videos (kept forever)", fmtGB(s.daily_video_gb_total), `+${fmtGB(s.daily_video_gb_per_day)}/day`],
-    ["Yearly archive (kept forever)", fmtGB(s.yearly_frames_gb), `+${fmtGB(s.yearly_gb_per_day)}/day`],
+    [`Daily videos (${forever(r.daily_video_days) ? "kept forever" : r.daily_video_days + "d retention"})`,
+     fmtGB(s.daily_video_gb_total), `+${fmtGB(s.daily_video_gb_per_day)}/day`],
+    ["Yearly archive frames (always kept forever)", fmtGB(s.yearly_frames_gb), `+${fmtGB(s.yearly_gb_per_day)}/day`],
+    ["Avg build time", b.avg_minutes != null ? `${b.avg_minutes} min` : "—",
+     b.samples ? `last: ${(b.last_seconds / 60).toFixed(1)} min &middot; ${b.samples} build(s) tracked` : "no builds recorded yet"],
   ];
+
+  const verdictText = {
+    shortage: `Storage shortage: ${fmtGB(f.shortage_gb)} short`,
+    excess: `Storage headroom: ${fmtGB(f.excess_gb)} to spare`,
+    runway: `Storage runway: ${f.runway_label}`,
+  }[f.verdict] || "Storage forecast unavailable";
+  const boundedNote = f.growth_needed_gb > 0
+    ? `Tiers with retention set still need ${fmtGB(f.growth_needed_gb)} more before reaching their ${fmtGB(f.bounded_ceiling_gb)} ceiling.`
+    : `Tiers with retention set are already at their steady-state size (${fmtGB(f.bounded_ceiling_gb)}).`;
+  const unboundedNote = f.unbounded_gb_per_day > 0
+    ? `Everything without a retention limit — always including the yearly archive frames, by design — grows at ${fmtGB(f.unbounded_gb_per_day)}/day (${fmtGB(f.unbounded_gb_per_year)}/year).`
+    : `Every other tier has a retention limit, so total usage stops growing once each reaches it.`;
+
+  const retentionLine = `Retention: snapshots ${forever(r.snapshot_days) ? "forever" : r.snapshot_days + " days"}
+    &middot; daily video ${forever(r.daily_video_days) ? "forever" : r.daily_video_days + " days"}
+    &middot; yearly video ${forever(r.yearly_video_years) ? "forever" : r.yearly_video_years + " years"}
+    &middot; events ${forever(r.events_video_days) ? "forever" : r.events_video_days + " days"}`;
+
   const camRows = Object.entries(data.cameras).map(([name, c]) => `
     <tr>
       <td>${name}</td>
@@ -388,9 +430,10 @@ async function renderStorage() {
             <div class="stat-sub">${sub}</div>
           </div>`).join("")}
       </div>
-      <div class="stat-projection">
-        Daily-video growth alone projects to <strong>${s.projected_daily_video_30d_gb} GB</strong>
-        in 30 days, <strong>${s.projected_daily_video_365d_gb} GB</strong> in a year, at the current rate.
+      <div class="retention-line">${retentionLine}</div>
+      <div class="forecast-banner forecast-${f.verdict || "runway"}">
+        <div class="forecast-title">${verdictText}</div>
+        <div class="forecast-detail">${boundedNote} ${unboundedNote}</div>
       </div>
       <table class="stat-table">
         <thead><tr>

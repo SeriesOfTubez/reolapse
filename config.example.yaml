@@ -56,8 +56,17 @@ cameras:
 capture:
   interval_seconds: 60        # one frame/minute -> ~48s daily video at 30 fps
   start_time: ""              # e.g. "05:30" to skip night frames; empty = all day
-  end_time: ""                # e.g. "21:30"
+  end_time: ""                # e.g. "21:30". Ignored if daylight_window.enabled
   timeout_seconds: 15
+  daylight_window:            # capture only around actual daylight, computed
+                              # daily from sunrise/sunset instead of a fixed
+                              # clock window — see the README section on IR
+                              # and 24-hour timelapses for why this matters.
+    enabled: false            # overrides start_time/end_time when true
+    buffer_minutes: 0         # start this many minutes before sunrise, stop
+                              # this many after sunset. Uses the same location
+                              # as events.zip/latitude/longitude below,
+                              # independent of weather_enabled/lunar_enabled.
 
 storage:
   root: ./data                # relative paths resolve next to config.yaml
@@ -69,6 +78,10 @@ daily_video:
   crf: 20                     # x264 quality; lower = better/bigger (18-23 sensible)
   deflicker_size: 10          # frames in the deflicker averaging window; 0 disables
   max_height: 1440            # downscale taller sources; 0 = keep original height
+  retention_days: 0           # delete a camera's daily .mp4 this many days after
+                              # its date; 0 = keep forever. Unlike snapshots, a
+                              # pruned daily video is NOT re-buildable — its
+                              # source frames are already gone by then too.
 
 yearly:
   archive_frames_per_day: 24  # frames kept forever per day; the pool the yearly
@@ -78,6 +91,11 @@ yearly:
   fps: 30
   crf: 20
   deflicker_size: 15          # wider window: day-to-day exposure varies more
+  retention_years: 0          # delete a camera's yearly .mp4 once it's more than
+                              # this many years old; 0 = keep forever. Cheap to
+                              # set low: the archived frames it's built from are
+                              # NEVER deleted, so `build_timelapse.py yearly
+                              # --year YYYY` regenerates a pruned year any time.
 
 # ---------------------------------------------------------------------------
 # Weather & lunar event tagging (optional)
@@ -127,6 +145,8 @@ events_video:
   # deflicker_by_tag:         # per-tag override — e.g. snow has no lightning
   #   snow: 10                # to protect, so smoothing exposure flicker is
   #                           # safe (and often looks better) there
+  retention_days: 0           # delete an event clip this many days after its
+                              # date (parsed from the filename); 0 = forever
 
 webapp:
   host: 0.0.0.0

@@ -20,6 +20,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 from common import load_config, snapshots_dir, videos_dir, yearly_frames_dir
@@ -154,6 +155,7 @@ def day_frames(cfg, cam_name, date):
 
 
 def cmd_daily(cfg, args):
+    start = time.time()
     date = resolve_date(args.date)
     for cam in selected_cameras(cfg, args.camera):
         frames = day_frames(cfg, cam["name"], date)
@@ -169,15 +171,133 @@ def cmd_daily(cfg, args):
             max_height=d.get("max_height", 0),
         )
         archive_yearly_frames(cfg, cam["name"], date, frames)
+
     try:
         build_event_videos(cfg, date, args.camera)
     except Exception:
         log.exception("event video build failed (daily videos are unaffected)")
+
+    try:
+        for cam in selected_cameras(cfg, args.camera):
+            prune_daily_videos(cfg, cam["name"])
+        prune_event_videos(cfg)
+    except Exception:
+        log.exception("video retention pruning failed (build is unaffected)")
+
+    elapsed = time.time() - start
+    log.info("daily build finished in %.1f min", elapsed / 60)
+    try:
+        record_build_time(cfg, date, elapsed)
+    except Exception:
+        log.exception("build time recording failed")
+
     try:
         import storage_stats
         storage_stats.write_stats(cfg)
     except Exception:
         log.exception("storage stats update failed (daily videos are unaffected)")
+
+
+def record_build_time(cfg, date, seconds, keep_last=60):
+    """Append this build's duration to a small rolling history file, used to
+    compute the "average build time" shown in the Storage tab."""
+    path = cfg["storage"]["root"] / "build_times.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    entry = {"date": date.isoformat(),
+             "run_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+             "seconds": round(seconds, 1)}
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
+    lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    if len(lines) > keep_last:
+        path.write_text("\n".join(lines[-keep_last:]) + "\n", encoding="utf-8")
+
+
+def prune_daily_videos(cfg, cam_name):
+    """Delete a camera's daily videos older than daily_video.retention_days.
+
+    Unlike snapshots, a pruned daily video is not re-buildable — by the time
+    it's old enough to prune, its source frames are long gone (snapshot
+    retention is measured in days, this in days-to-years).
+    """
+    days = cfg["daily_video"].get("retention_days", 0)
+    if not days:
+        return
+    cutoff = dt.date.today() - dt.timedelta(days=days)
+    daily_dir = videos_dir(cfg) / cam_name / "daily"
+    if not daily_dir.is_dir():
+        return
+    for f in daily_dir.glob("*.mp4"):
+        try:
+            file_date = dt.date.fromisoformat(f.stem)
+        except ValueError:
+            continue
+        if file_date < cutoff:
+            f.unlink()
+            log.info("%s: pruned daily video %s (older than %d days)",
+                      cam_name, f.name, days)
+
+
+def prune_yearly_videos(cfg, cam_name):
+    """Delete a camera's yearly videos older than yearly.retention_years.
+
+    Only the rendered .mp4 is deleted — the archived frames it was built from
+    are never pruned, so a deleted year can be regenerated any time with
+    `build_timelapse.py yearly --year YYYY`.
+    """
+    years = cfg["yearly"].get("retention_years", 0)
+    if not years:
+        return
+    cutoff_year = dt.date.today().year - years
+    yearly_dir = videos_dir(cfg) / cam_name / "yearly"
+    if not yearly_dir.is_dir():
+        return
+    for f in yearly_dir.glob("*.mp4"):
+        try:
+            year = int(f.stem)
+        except ValueError:
+            continue
+        if year < cutoff_year:
+            f.unlink()
+            log.info("%s: pruned yearly video %s (older than %d years; frames are "
+                      "kept forever — rebuild any time with `yearly --year %d`)",
+                      cam_name, f.name, years, year)
+
+
+def prune_event_videos(cfg):
+    """Delete event clips older than events_video.retention_days, then drop
+    their entries from the events.jsonl index so it stays in sync with disk.
+    """
+    days = cfg.get("events_video", {}).get("retention_days", 0)
+    if days:
+        cutoff = dt.date.today() - dt.timedelta(days=days)
+        for cam in cfg["cameras"]:
+            events_dir = videos_dir(cfg) / cam["name"] / "events"
+            if not events_dir.is_dir():
+                continue
+            for f in events_dir.glob("*.mp4"):
+                try:
+                    file_date = dt.date.fromisoformat(f.stem[:10])
+                except ValueError:
+                    continue
+                if file_date < cutoff:
+                    f.unlink()
+                    log.info("%s: pruned event video %s (older than %d days)",
+                              cam["name"], f.name, days)
+
+    index_path = cfg["storage"]["root"] / "events.jsonl"
+    if not index_path.exists():
+        return
+    kept = []
+    for line in index_path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        entry = json.loads(line)
+        if (videos_dir(cfg) / entry["video"]).exists():
+            kept.append(entry)
+    with open(index_path, "w", encoding="utf-8") as f:
+        for entry in kept:
+            f.write(json.dumps(entry) + "\n")
 
 
 def tag_spans(cfg, date, tag, gap_minutes=20):
@@ -295,6 +415,10 @@ def cmd_yearly(cfg, args):
             deflicker_size=y.get("deflicker_size", 0),
             max_height=cfg["daily_video"].get("max_height", 0),
         )
+        try:
+            prune_yearly_videos(cfg, cam["name"])
+        except Exception:
+            log.exception("%s: yearly video retention pruning failed", cam["name"])
 
 
 def resolve_date(value) -> dt.date:

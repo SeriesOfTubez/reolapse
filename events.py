@@ -97,6 +97,34 @@ def _autumn_equinox(year, cache_dir):
     return _SKY[key]
 
 
+def sunrise_sunset(date, lat, lon, cache_dir):
+    """Local (sunrise, sunset) times as datetime.time for a given date and
+    location. Either may be None during polar day/night, when the sun
+    doesn't rise or set that day.
+    """
+    from skyfield import almanac
+    from skyfield.api import wgs84
+    ts, eph = _skyfield(cache_dir)
+    location = wgs84.latlon(lat, lon)
+    # A full local day in UTC terms may span parts of two UTC dates, so scan
+    # a day of padding on each side and keep only events that land on `date`
+    # once converted back to local time.
+    t0 = ts.utc(date.year, date.month, date.day - 1)
+    t1 = ts.utc(date.year, date.month, date.day + 2)
+    times, sun_is_up = almanac.find_discrete(t0, t1, almanac.sunrise_sunset(eph, location))
+
+    sunrise = sunset = None
+    for t, is_up in zip(times, sun_is_up):
+        local = t.utc_datetime().astimezone()
+        if local.date() != date:
+            continue
+        if is_up and sunrise is None:
+            sunrise = local.time()
+        elif not is_up and sunset is None:
+            sunset = local.time()
+    return sunrise, sunset
+
+
 def lunar_eclipses(year, cache_dir):
     """Local date -> (eclipse type code, Skyfield Time of greatest eclipse).
 

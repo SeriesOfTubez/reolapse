@@ -69,6 +69,51 @@ class Conditions:
         return base_seconds
 
 
+class DaylightWindow:
+    """Computes today's sunrise/sunset capture window (with a buffer) once
+    per day and caches it — capture ticks call this far more often than the
+    sun rises.
+
+    Uses the same location config as weather/lunar tagging (events.zip or
+    latitude/longitude), independent of whether either of those is enabled.
+    Fails open (captures all day) if location or the sunrise/sunset lookup
+    is unavailable, same policy as the rest of capture.py's checks.
+    """
+
+    def __init__(self, cfg):
+        self.cfg = cfg["capture"].get("daylight_window") or {}
+        self.enabled = bool(self.cfg.get("enabled"))
+        self.events_cfg = cfg.get("events") or {}
+        self.ephem_dir = cfg["storage"]["root"] / "ephemeris"
+        self._cached_date = None
+        self._window = (None, None)
+
+    def window_for(self, today):
+        if today != self._cached_date:
+            self._cached_date = today
+            self._window = self._compute(today)
+        return self._window
+
+    def _compute(self, today):
+        buffer_min = self.cfg.get("buffer_minutes", 0)
+        try:
+            lat, lon = events.resolve_location(self.events_cfg)
+            sunrise, sunset = events.sunrise_sunset(today, lat, lon, self.ephem_dir)
+        except Exception as exc:
+            log.warning("daylight window unavailable, capturing all day: %s", exc)
+            return None, None
+        if sunrise:
+            sunrise = (dt.datetime.combine(today, sunrise)
+                       - dt.timedelta(minutes=buffer_min)).time()
+        if sunset:
+            sunset = (dt.datetime.combine(today, sunset)
+                      + dt.timedelta(minutes=buffer_min)).time()
+        log.info("daylight window for %s: %s - %s", today,
+                 sunrise.strftime("%H:%M") if sunrise else "n/a",
+                 sunset.strftime("%H:%M") if sunset else "n/a")
+        return sunrise, sunset
+
+
 def jpeg_with_comment(data: bytes, payload: dict) -> bytes:
     """Insert a JPEG COM segment (readable by exiftool as 'Comment') after SOI."""
     com = json.dumps(payload, separators=(",", ":")).encode()
@@ -155,9 +200,12 @@ def parse_hhmm(value):
     return dt.time(int(hour), int(minute))
 
 
-def within_window(now, capture_cfg) -> bool:
-    start = parse_hhmm(capture_cfg.get("start_time"))
-    end = parse_hhmm(capture_cfg.get("end_time"))
+def within_window(now, capture_cfg, daylight=None) -> bool:
+    if daylight and daylight.enabled:
+        start, end = daylight.window_for(now.date())
+    else:
+        start = parse_hhmm(capture_cfg.get("start_time"))
+        end = parse_hhmm(capture_cfg.get("end_time"))
     if start and now.time() < start:
         return False
     if end and now.time() > end:
@@ -195,10 +243,10 @@ def prune_old_snapshots(cfg):
             log.info("pruned snapshots %s/%s", cam_dir.name, day_dir.name)
 
 
-def run_once(cfg, conditions=None):
+def run_once(cfg, conditions=None, daylight=None):
     now = dt.datetime.now()
     capture_cfg = cfg["capture"]
-    if not within_window(now, capture_cfg):
+    if not within_window(now, capture_cfg, daylight):
         log.debug("outside capture window, skipping")
         return
 
@@ -228,6 +276,9 @@ def run_once(cfg, conditions=None):
 def loop(cfg):
     base_interval = cfg["capture"]["interval_seconds"]
     conditions = Conditions(cfg)
+    daylight = DaylightWindow(cfg)
+    if daylight.enabled and (cfg["capture"].get("start_time") or cfg["capture"].get("end_time")):
+        log.warning("capture.daylight_window is enabled; static start_time/end_time are ignored")
     last_prune_day = None
     while True:
         conditions.refresh()
@@ -236,7 +287,7 @@ def loop(cfg):
         interval = conditions.interval(base_interval)
         now = time.time()
         time.sleep(interval - (now % interval))
-        run_once(cfg, conditions)
+        run_once(cfg, conditions, daylight)
 
         today = dt.date.today()
         if today != last_prune_day:
@@ -262,7 +313,7 @@ def main():
     else:
         conditions = Conditions(cfg)
         conditions.refresh()
-        run_once(cfg, conditions)
+        run_once(cfg, conditions, DaylightWindow(cfg))
         prune_old_snapshots(cfg)
 
 
