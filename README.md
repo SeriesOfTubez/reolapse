@@ -263,7 +263,11 @@ frame.
   video. **ReoLapse is a private, LAN-only tool. Do not port-forward it or
   otherwise expose it to the internet.** If you need remote access, put it on
   a VPN (Tailscale, WireGuard) or behind a reverse proxy that adds its own
-  auth and TLS — don't rely on ReoLapse itself for either.
+  auth and TLS — don't rely on ReoLapse itself for either. This was a
+  deliberate design choice, not an oversight: ReoLapse was built to run on
+  your home network, and login screens are complexity a private homelab tool
+  doesn't need. Auth may get added later if there's enough demand for it —
+  open an issue if that's you.
 - Credentials live in `.env` (gitignored), never in `config.yaml`.
 - Prefer a **dedicated, least-privilege** camera/NVR account for ReoLapse. The
   Snap API passes credentials as URL parameters, so avoid `&`, `#`, `%` in that
