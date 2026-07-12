@@ -3,14 +3,14 @@
 Sources (all free, no API keys):
 - NWS active alerts (api.weather.gov, US only) — officially warned events
 - Open-Meteo current conditions — catches storms/snow with no official alert
-- Local computation for moon events (full / blue / harvest)
-
-Blood moons (lunar eclipses) are not computed yet — they need an ephemeris or
-eclipse table rather than phase math.
+- Skyfield (JPL ephemeris) for moon events: full / blue / harvest moon plus
+  blood moon (total lunar eclipse) and partial lunar eclipse. Computed locally;
+  the ephemeris file (de421.bsp, ~17 MB) downloads once on first use.
 """
 
 import datetime as dt
 import logging
+from pathlib import Path
 
 import requests
 
@@ -18,9 +18,11 @@ log = logging.getLogger("weather")
 
 USER_AGENT = "reolink-timelapse-homelab (personal hobby project)"
 
-SYNODIC_DAYS = 29.530588853
-# Reference new moon: 2000-01-06 18:14 UTC
-NEW_MOON_EPOCH = dt.datetime(2000, 1, 6, 18, 14, tzinfo=dt.timezone.utc)
+APP_ROOT = Path(__file__).resolve().parent
+
+# Skyfield objects and per-year event lists are cached here so the ephemeris
+# loads once and events compute once per year, not on every poll.
+_SKY = {}
 
 # (substring of NWS event name, tag)
 NWS_TAG_MAP = [
@@ -44,39 +46,76 @@ WMO_TAGS = {
 }
 
 
-def moon_age(when_utc: dt.datetime) -> float:
-    """Days since new moon (0..29.53)."""
-    return ((when_utc - NEW_MOON_EPOCH).total_seconds() / 86400) % SYNODIC_DAYS
+def _skyfield(cache_dir):
+    """Lazily load the timescale + ephemeris, cached for the process."""
+    if "eph" not in _SKY:
+        from skyfield.api import Loader
+        loader = Loader(str(cache_dir))
+        _SKY["ts"] = loader.timescale()
+        _SKY["eph"] = loader("de421.bsp")
+    return _SKY["ts"], _SKY["eph"]
 
 
-def full_moon_dates(year: int) -> list:
-    """Dates (UTC-noon-based) of full moons in a year."""
-    half = SYNODIC_DAYS / 2
-    best = {}  # cycle index -> (deviation, date)
-    day = dt.date(year, 1, 1)
-    while day.year == year:
-        noon = dt.datetime(day.year, day.month, day.day, 12, tzinfo=dt.timezone.utc)
-        dev = abs(moon_age(noon) - half)
-        if dev < 0.6:
-            cycle = int((noon - NEW_MOON_EPOCH).total_seconds() / 86400 / SYNODIC_DAYS)
-            if cycle not in best or dev < best[cycle][0]:
-                best[cycle] = (dev, day)
-        day += dt.timedelta(days=1)
-    return sorted(d for _, d in best.values())
+def _local_date(t):
+    """Skyfield Time -> local calendar date (system timezone)."""
+    return t.utc_datetime().astimezone().date()
 
 
-def moon_tags(today: dt.date) -> dict:
+def full_moon_dates(year, cache_dir):
+    """Local dates of every full moon in a calendar year (cached per year)."""
+    key = ("full", year)
+    if key not in _SKY:
+        from skyfield import almanac
+        ts, eph = _skyfield(cache_dir)
+        times, phases = almanac.find_discrete(
+            ts.utc(year, 1, 1), ts.utc(year + 1, 1, 2), almanac.moon_phases(eph))
+        _SKY[key] = sorted(_local_date(t) for t, p in zip(times, phases) if p == 2)
+    return _SKY[key]
+
+
+def _autumn_equinox(year, cache_dir):
+    key = ("equinox", year)
+    if key not in _SKY:
+        from skyfield import almanac
+        ts, eph = _skyfield(cache_dir)
+        times, events = almanac.find_discrete(
+            ts.utc(year, 9, 1), ts.utc(year, 10, 1), almanac.seasons(eph))
+        found = [_local_date(t) for t, e in zip(times, events) if e == 2]
+        _SKY[key] = found[0] if found else dt.date(year, 9, 22)
+    return _SKY[key]
+
+
+def lunar_eclipses(year, cache_dir):
+    """Local date -> eclipse type code (0 penumbral, 1 partial, 2 total)."""
+    key = ("eclipse", year)
+    if key not in _SKY:
+        from skyfield import eclipselib
+        ts, eph = _skyfield(cache_dir)
+        times, codes, _ = eclipselib.lunar_eclipses(
+            ts.utc(year, 1, 1), ts.utc(year + 1, 1, 1), eph)
+        _SKY[key] = {_local_date(t): int(c) for t, c in zip(times, codes)}
+    return _SKY[key]
+
+
+def moon_tags(today, cache_dir):
+    """Moon-event tags for a given local date, computed via Skyfield."""
     tags = {}
-    fulls = full_moon_dates(today.year)
-    if today not in fulls:
-        return tags
-    tags["full-moon"] = "computed from lunar phase"
-    month_fulls = [d for d in fulls if d.month == today.month]
-    if len(month_fulls) == 2 and today == month_fulls[1]:
-        tags["blue-moon"] = "second full moon this month"
-    equinox = dt.date(today.year, 9, 22)
-    if today == min(fulls, key=lambda d: abs((d - equinox).days)):
-        tags["harvest-moon"] = "full moon nearest the autumn equinox"
+    eclipse = lunar_eclipses(today.year, cache_dir).get(today)
+    if eclipse == 2:
+        tags["blood-moon"] = "total lunar eclipse"
+    elif eclipse == 1:
+        tags["lunar-eclipse"] = "partial lunar eclipse"
+    # penumbral (0) is barely perceptible — not tagged
+
+    fulls = full_moon_dates(today.year, cache_dir)
+    if today in fulls:
+        tags["full-moon"] = "full moon"
+        month_fulls = [d for d in fulls if d.month == today.month]
+        if len(month_fulls) == 2 and today == month_fulls[1]:
+            tags["blue-moon"] = "second full moon this month"
+        equinox = _autumn_equinox(today.year, cache_dir)
+        if today == min(fulls, key=lambda d: abs((d - equinox).days)):
+            tags["harvest-moon"] = "full moon nearest the autumn equinox"
     return tags
 
 
@@ -111,17 +150,20 @@ def open_meteo_tags(lat, lon, timeout=10) -> dict:
     return tags
 
 
-def get_active_tags(weather_cfg) -> dict:
+def get_active_tags(weather_cfg, cache_dir=None) -> dict:
     """All currently active tags -> human-readable reason.
 
     Each source is independent; one failing never blocks the others.
+    `cache_dir` stores the Skyfield ephemeris (downloaded once).
     """
     lat = weather_cfg["latitude"]
     lon = weather_cfg["longitude"]
+    cache_dir = Path(cache_dir) if cache_dir else APP_ROOT / ".ephemeris"
+    cache_dir.mkdir(parents=True, exist_ok=True)
     tags = {}
     for source in (lambda: nws_alert_tags(lat, lon),
                    lambda: open_meteo_tags(lat, lon),
-                   lambda: moon_tags(dt.date.today())):
+                   lambda: moon_tags(dt.date.today(), cache_dir)):
         try:
             for tag, reason in source().items():
                 tags.setdefault(tag, reason)
@@ -133,13 +175,17 @@ def get_active_tags(weather_cfg) -> dict:
 
 
 if __name__ == "__main__":
-    # Quick sanity check: print this year's full moons and current tags.
+    # Quick sanity check: print this year's moon events and current tags.
     import json
     import sys
 
     logging.basicConfig(level=logging.INFO)
-    year = dt.date.today().year
-    print(f"Full moons {year}: {[str(d) for d in full_moon_dates(year)]}")
-    if len(sys.argv) == 3:
+    cache = APP_ROOT / ".ephemeris"
+    year = int(sys.argv[3]) if len(sys.argv) > 3 else dt.date.today().year
+    print(f"Full moons {year}: {[str(d) for d in full_moon_dates(year, cache)]}")
+    names = {0: "penumbral", 1: "partial", 2: "total"}
+    ecl = {str(d): names[c] for d, c in lunar_eclipses(year, cache).items()}
+    print(f"Lunar eclipses {year}: {ecl}")
+    if len(sys.argv) >= 3:
         cfg = {"latitude": float(sys.argv[1]), "longitude": float(sys.argv[2])}
-        print(json.dumps(get_active_tags(cfg), indent=2))
+        print(json.dumps(get_active_tags(cfg, cache), indent=2))

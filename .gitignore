@@ -5,6 +5,10 @@ config.yaml
 # --- Captured frames & generated videos ---
 data/
 
+# --- Downloaded Skyfield ephemeris (standalone runs) ---
+.ephemeris/
+*.bsp
+
 # --- Python ---
 __pycache__/
 *.py[cod]

@@ -39,6 +39,7 @@ class Conditions:
         self.wcfg = wcfg
         self.enabled = bool(wcfg.get("enabled"))
         self.log_dir = cfg["storage"]["root"] / "conditions"
+        self.ephem_dir = cfg["storage"]["root"] / "ephemeris"
         self.tags = {}
         self._known = None
         self._last_poll = None
@@ -51,7 +52,7 @@ class Conditions:
         if self._last_poll and (now - self._last_poll).total_seconds() < poll_secs:
             return
         self._last_poll = now
-        self.tags = weather.get_active_tags(self.wcfg)
+        self.tags = weather.get_active_tags(self.wcfg, self.ephem_dir)
         if set(self.tags) != self._known:
             self._known = set(self.tags)
             log.info("conditions now: %s", sorted(self.tags) or "clear")

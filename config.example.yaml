@@ -78,8 +78,11 @@ yearly:
 # Weather tagging & storm burst mode (optional; US-only alert source)
 # ---------------------------------------------------------------------------
 # Polls NWS alerts + Open-Meteo (both free, no API keys) and computes moon
-# events locally. Active tags are logged and embedded in each frame; storms
-# and snow trigger faster capture.
+# events locally with Skyfield (full/blue/harvest moon, blood moon = total
+# lunar eclipse, partial lunar eclipse). Active tags are logged and embedded
+# in each frame; storms and snow trigger faster capture. Moon tags are
+# metadata only (not in burst_tags/events_video by default). First run
+# downloads a ~17 MB ephemeris into <storage.root>/ephemeris.
 weather:
   enabled: false              # set true and fill in your location to use it
   latitude: 0.0               # your approximate location (any point in your

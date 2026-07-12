@@ -2,3 +2,4 @@ requests>=2.31
 PyYAML>=6.0
 Flask>=3.0
 python-dotenv>=1.0
+skyfield>=1.45

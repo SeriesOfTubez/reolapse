@@ -34,7 +34,7 @@ through a bundled single-page web app.
   keys) and computes moon events locally. During storms/snow it captures every
   10s instead of every 60s, and the nightly build cuts a per-storm clip.
 - **Frame tagging & metadata.** Active conditions (`storm`, `snow`, `rain`,
-  `full-moon`, `blue-moon`, `harvest-moon`) are logged and embedded in each
+  `full-moon`, `blue-moon`, `harvest-moon`, `blood-moon`, `lunar-eclipse`) are logged and embedded in each
   JPEG, so the data stays self-describing and searchable later.
 - **PTZ-aware.** For auto-tracking cameras, frames captured away from the
   camera's home position are quarantined so they don't jerk the timelapse.
@@ -176,8 +176,10 @@ NWS + Open-Meteo every `poll_minutes`. Active tags are appended to
 `data/conditions/<date>.jsonl` and embedded in each frame as a JPEG comment
 (`{"tags":["storm"]}`, visible in exiftool). Storms/snow trigger burst capture,
 and the nightly build renders a clip per event span into the **Events** tab
-(deflicker off, so lightning flashes aren't smoothed away). Moon events are
-computed locally; lunar eclipses ("blood moon") are not yet detected.
+(deflicker off, so lightning flashes aren't smoothed away). Moon events —
+including blood moons (total lunar eclipses) — are computed locally with
+[Skyfield](https://rhodesmill.org/skyfield/); the JPL ephemeris it needs
+(`de421.bsp`, ~17 MB) downloads once on first run into `data/ephemeris/`.
 
 ## PTZ cameras
 
@@ -200,7 +202,6 @@ frame.
 
 ## Roadmap / ideas
 
-- Blood-moon (lunar eclipse) detection via an ephemeris.
 - Re-encode old dailies at a lower bitrate to reclaim space.
 - All-sky / long-exposure night camera support (Raspberry Pi HQ + Allsky).
 - Object-storage (S3/Garage) backend for videos.
