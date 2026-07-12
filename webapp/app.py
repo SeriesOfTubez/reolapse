@@ -139,7 +139,11 @@ def probe_reolink_ip(ip, port_timeout=0.6, http_timeout=3):
         except OSError:
             continue
         try:
-            r = requests.post(
+            # verify=False: Reolink devices ship self-signed certs (same
+            # tradeoff as capture.py's verify_ssl option, documented in the
+            # README) - and this is a discovery probe to an IP with no prior
+            # trust anyway, on the LAN this app already requires.
+            r = requests.post(  # nosemgrep: disabled-cert-validation
                 f"{scheme}://{ip}/cgi-bin/api.cgi?cmd=GetDevInfo",
                 json=[{"cmd": "GetDevInfo", "action": 0, "param": {}}],
                 timeout=http_timeout, verify=False,
@@ -165,9 +169,11 @@ def identify_reolink_device(host, username, password, https=True, timeout=10):
         params = {"cmd": cmd, "user": username, "password": password}
         if token:
             params["token"] = token
-        r = requests.post(base, params=params,
-                          json=[{"cmd": cmd, "action": 0, "param": param}],
-                          timeout=timeout, verify=False)
+        # verify=False: same self-signed-cert tradeoff as above.
+        r = requests.post(  # nosemgrep: disabled-cert-validation
+            base, params=params,
+            json=[{"cmd": cmd, "action": 0, "param": param}],
+            timeout=timeout, verify=False)
         return r.json()[0]
 
     token = None
