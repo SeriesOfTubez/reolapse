@@ -101,6 +101,18 @@ frames are never pruned.
 - Python 3.9+
 - ffmpeg on `PATH`
 - Reolink camera(s) and/or NVR reachable on your network
+- A CPU exposing the **x86-64-v2** instruction baseline (SSE4.1, SSE4.2,
+  POPCNT — needed by NumPy, which Skyfield uses for lunar event detection).
+  Any real CPU from the last ~15 years has this. **Running in a VM (Proxmox,
+  KVM, ESXi, etc.)?** Generic/portable virtual CPU types (e.g. Proxmox's
+  default `kvm64`/`qemu64`, which reports as "Common KVM processor") often
+  expose only SSE2 and will *not* meet this baseline — NumPy fails at runtime
+  and lunar tagging silently stops working (everything else is unaffected).
+  Set the VM's CPU type to `host` (passes through the physical CPU, best
+  performance) or a synthetic type that guarantees v2+, such as
+  `x86-64-v2-AES` or `x86-64-v3`, then reboot the VM. Verify with:
+  `grep -o 'sse4_2\|popcnt' /proc/cpuinfo` — if that prints nothing, the
+  baseline isn't met.
 
 ## Quick start (Docker)
 
@@ -119,6 +131,10 @@ Open <http://localhost:8080>. Three services start: `capture` (continuous),
 `config.yaml` so data lands on the Docker volume.
 
 ## Install on a Linux VM (systemd)
+
+> **Running this in a VM?** Make sure the hypervisor exposes at least the
+> x86-64-v2 CPU baseline to the guest — see [Requirements](#requirements).
+> Proxmox's default CPU type doesn't; `host` or `x86-64-v3` does.
 
 ```bash
 sudo mkdir -p /opt/reolapse && sudo chown "$USER" /opt/reolapse
@@ -203,7 +219,10 @@ moon, blue moon, harvest moon, and lunar eclipses — using
 (`de421.bsp`, ~17 MB, downloaded once into `data/ephemeris/`). **No location
 is required**: a full moon happens at the same instant everywhere on Earth,
 so the phase-based tags (`full-moon`, `blue-moon`, `harvest-moon`) work with
-nothing else configured.
+nothing else configured. This does need a CPU meeting the x86-64-v2 baseline
+(see [Requirements](#requirements)) — on an under-specified VM it fails
+silently, logging `event source failed: NumPy was built with baseline
+optimizations...` while the rest of ReoLapse keeps working normally.
 
 Eclipses are a little more subtle. The eclipse itself is also a geocentric
 event, but *visibility* is not — only the hemisphere facing the Moon at that
