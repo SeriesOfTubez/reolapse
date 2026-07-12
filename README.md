@@ -161,7 +161,8 @@ not: reference them as `${VAR}` and put the values in `.env`. Highlights:
 | `storage.keep_snapshots_days` | Retention for raw frames after their video builds |
 | `daily_video.deflicker_size` | Deflicker window; `0` disables |
 | `yearly.video_frames_per_day` / `video_window` | Pacing of the yearly video |
-| `weather.*` | Storm/snow burst capture + condition tagging (US alerts); also gates lunar event detection |
+| `events.weather_enabled` | Storm/snow/rain tagging + burst capture (needs `events.zip` or `latitude`/`longitude`) |
+| `events.lunar_enabled` | Moon-event tagging — no location required |
 | `events_video.tags` | Which tags get their own `<date>_<tag>.mp4` clip (default `storm`, `snow`; any tag works, including moon events) |
 
 See the inline comments in `config.example.yaml` for the full reference.
@@ -181,27 +182,40 @@ python webapp/app.py            # serve the web UI
 
 ## Weather tagging & storm bursts
 
-With `weather.enabled: true` and your location set (`zip`, or `latitude`/`longitude`), capture polls
-NWS + Open-Meteo every `poll_minutes` for storm/snow/rain conditions. Active
-tags are appended to `data/conditions/<date>.jsonl` and embedded in each frame
-as a JPEG comment (`{"tags":["storm"]}`, visible in exiftool). Storms/snow
-trigger burst capture, and the nightly build renders a clip per event span
-into the **Events** tab (deflicker off, so lightning flashes aren't smoothed
-away).
+`events.weather_enabled` and `events.lunar_enabled` are independent
+switches — turn on either, both, or neither.
+
+With `events.weather_enabled: true` and a location set (`events.zip`, or
+`latitude`/`longitude`), capture polls NWS + Open-Meteo every `poll_minutes`
+for storm/snow/rain conditions. Active tags are appended to
+`data/conditions/<date>.jsonl` and embedded in each frame as a JPEG comment
+(`{"tags":["storm"]}`, visible in exiftool). Storms/snow trigger burst
+capture, and the nightly build renders a clip per event span into the
+**Events** tab (deflicker off, so lightning flashes aren't smoothed away). If
+this is enabled without a resolvable location, storm/snow tagging is skipped
+and the web UI shows a warning banner.
 
 ## Lunar event detection
 
-Separately from weather alerts, ReoLapse computes real moon events — full
-moon, blue moon, harvest moon, and lunar eclipses (blood moon = total,
-partial otherwise) — using [Skyfield](https://rhodesmill.org/skyfield/) and a
-local JPL ephemeris (`de421.bsp`, ~17 MB, downloaded once into
-`data/ephemeris/`). This needs no location: `weather.enabled: true` turns it
-on even without a `zip`/`latitude`/`longitude` set.
+With `events.lunar_enabled: true`, ReoLapse computes real moon events — full
+moon, blue moon, harvest moon, and lunar eclipses — using
+[Skyfield](https://rhodesmill.org/skyfield/) and a local JPL ephemeris
+(`de421.bsp`, ~17 MB, downloaded once into `data/ephemeris/`). **No location
+is required**: a full moon happens at the same instant everywhere on Earth,
+so the phase-based tags (`full-moon`, `blue-moon`, `harvest-moon`) work with
+nothing else configured.
 
-Lunar tags (`full-moon`, `blue-moon`, `harvest-moon`, `blood-moon`,
-`lunar-eclipse`) are logged and embedded the same way as weather tags, but
-they're metadata only by default — they don't trigger burst capture. Add them
-to `events_video.tags` if you want an automatic clip (e.g. `2026-03-03_blood-moon.mp4`).
+Eclipses are a little more subtle. The eclipse itself is also a geocentric
+event, but *visibility* is not — only the hemisphere facing the Moon at that
+moment can see it. If a location is configured (shared with the weather
+settings), an eclipse is only tagged `blood-moon` (total) or `lunar-eclipse`
+(partial) when the Moon was actually above your horizon for it; without a
+location, every eclipse is tagged unconditionally since there's nothing to
+check visibility against.
+
+Lunar tags are metadata only by default — they don't trigger burst capture.
+Add them to `events_video.tags` if you want an automatic clip, e.g.
+`2026-03-03_blood-moon.mp4`.
 
 ## PTZ cameras
 

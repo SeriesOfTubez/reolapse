@@ -80,20 +80,35 @@ yearly:
   deflicker_size: 15          # wider window: day-to-day exposure varies more
 
 # ---------------------------------------------------------------------------
-# Weather tagging & storm burst mode (optional; US-only alert source)
+# Weather & lunar event tagging (optional)
 # ---------------------------------------------------------------------------
-# Polls NWS alerts + Open-Meteo (both free, no API keys) and computes moon
-# events locally with Skyfield (full/blue/harvest moon, blood moon = total
-# lunar eclipse, partial lunar eclipse). Active tags are logged and embedded
-# in each frame; storms and snow trigger faster capture. Moon tags are
-# metadata only (not in burst_tags/events_video by default). First run
-# downloads a ~17 MB ephemeris into <storage.root>/ephemeris.
-weather:
-  enabled: false              # set true and fill in your location to use it
-  zip: "12345"                # US ZIP for your location, resolved to lat/lon
-                              # via zippopotam.us (free, no key). Or set
-                              # latitude/longitude below to skip the lookup
-                              # (required outside the US).
+# Two independent switches — turn on either, both, or neither:
+#
+#   weather_enabled  Polls NWS alerts (US-only) + Open-Meteo for storm/snow/
+#                    rain, triggers burst capture. REQUIRES a location: set
+#                    `zip`, or `latitude`/`longitude` (required outside the
+#                    US). If enabled without one, storm/snow tagging is
+#                    silently skipped and a warning is logged — the web UI
+#                    also flags this.
+#
+#   lunar_enabled    Computes real moon events locally with Skyfield: full,
+#                    blue, and harvest moon, plus blood moon (total lunar
+#                    eclipse) and partial lunar eclipse. NO location required
+#                    — moon phase is the same instant everywhere on Earth.
+#                    A location, if set, is used to only tag an eclipse when
+#                    the Moon was actually above your horizon (eclipses are
+#                    geocentric events, but visibility is not — a total
+#                    eclipse invisible from the southern hemisphere, say,
+#                    still fires the phase math without one). First use
+#                    downloads a ~17 MB ephemeris into <storage.root>/ephemeris.
+#
+# Active tags are logged (data/conditions/) and embedded in each frame.
+events:
+  weather_enabled: false
+  lunar_enabled: false
+  zip: "12345"                # US ZIP, resolved to lat/lon via zippopotam.us
+                              # (free, no key). Or set latitude/longitude
+                              # below to skip the lookup.
   # latitude: 0.0
   # longitude: 0.0
   poll_minutes: 5

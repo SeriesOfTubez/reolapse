@@ -170,6 +170,15 @@
     font-size: var(--fs-sm);
   }
 
+  #warnings:empty { display: none; }
+  .warning {
+    padding: var(--space-2) var(--space-5);
+    background: var(--accent-quiet);
+    color: var(--accent);
+    font-size: var(--fs-sm);
+    border-bottom: 1px solid var(--border);
+  }
+
   @media (max-width: 700px) {
     main { flex-direction: column; }
     #sidebar {
@@ -196,6 +205,7 @@
     <button class="pill" data-type="events">Events</button>
   </div>
 </header>
+<div id="warnings"></div>
 <main>
   <div id="sidebar"></div>
   <div id="player-area">
@@ -209,6 +219,16 @@ async function load() {
   const res = await fetch("/api/videos");
   const data = await res.json();
   state.videos = data.videos;
+
+  const warnBox = document.getElementById("warnings");
+  warnBox.innerHTML = "";
+  (data.warnings || []).forEach(w => {
+    const div = document.createElement("div");
+    div.className = "warning";
+    div.textContent = w;
+    warnBox.appendChild(div);
+  });
+
   const camBox = document.getElementById("cameras");
   camBox.innerHTML = "";
   data.cameras.forEach((cam, i) => {

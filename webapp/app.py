@@ -5,6 +5,7 @@
 """
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -14,6 +15,28 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from common import load_config, videos_dir  # noqa: E402
 
 VIDEO_TYPES = ("daily", "yearly", "events")
+US_ZIP_RE = re.compile(r"^\d{5}$")
+
+
+def config_warnings(cfg):
+    """Cheap, network-free config sanity checks surfaced in the web UI."""
+    warnings = []
+    ecfg = cfg.get("events") or {}
+    if ecfg.get("weather_enabled"):
+        zip_code = str(ecfg.get("zip") or ecfg.get("zip_code") or "").strip()
+        has_latlon = ecfg.get("latitude") is not None and ecfg.get("longitude") is not None
+        if not has_latlon and not zip_code:
+            warnings.append(
+                "events.weather_enabled is true but no location is set — add "
+                "events.zip or events.latitude/longitude. Storm/snow tagging "
+                "is currently disabled."
+            )
+        elif zip_code and not has_latlon and not US_ZIP_RE.match(zip_code):
+            warnings.append(
+                f'events.zip "{zip_code}" doesn\'t look like a valid 5-digit '
+                "US ZIP code — weather tagging may not be resolving a location."
+            )
+    return warnings
 
 
 def create_app(cfg):
@@ -48,6 +71,7 @@ def create_app(cfg):
         return jsonify({
             "cameras": sorted({v["camera"] for v in videos}),
             "videos": videos,
+            "warnings": config_warnings(cfg),
         })
 
     @app.get("/videos/<camera>/<vtype>/<name>")
