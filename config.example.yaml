@@ -5,15 +5,17 @@
 # ---------------------------------------------------------------------------
 # Cameras
 # ---------------------------------------------------------------------------
-# Each camera can be reached two ways. Both return the same full-resolution
-# main-stream snapshot (verified on an RLN36: byte-for-byte identical), so
-# choose by network topology, not image quality:
+# Each camera can be reached two ways — use whichever is convenient:
 #   * Through an NVR  host = NVR IP,     channel = the camera's NVR channel
-#                    (one host + one credential for every camera; required if
-#                    cameras sit on the NVR's isolated PoE network)
+#                    (one host + one credential for every camera; also needed
+#                    if cameras sit on the NVR's isolated PoE network)
 #   * Directly       host = camera IP,  channel = 0
 #                    (no NVR dependency; also the only way to reach a lens the
 #                    NVR doesn't expose, e.g. a dual-lens camera's 2nd lens)
+#
+# Both return the same full-resolution main-stream snapshot on current gear
+# (verified on an RLN36). Some older NVRs may return a reduced-res snapshot —
+# if you see that, pull that camera directly.
 #
 # `name` is used in folder/file names — letters, digits and dashes only.
 cameras:
