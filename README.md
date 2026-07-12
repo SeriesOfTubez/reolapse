@@ -49,13 +49,16 @@ through a bundled single-page web app.
 ## Supported hardware
 
 Any Reolink device that exposes the HTTP **`Snap`** CGI command — which is
-essentially all current cameras and NVRs. You can connect two ways:
+essentially all current cameras and NVRs. You can connect two ways, and both
+return the same full-resolution main-stream snapshot (verified on an RLN36 as
+byte-for-byte identical), so choose by network topology, not image quality:
 
-- **Directly** to a camera (`host` = camera IP, `channel: 0`) — full-resolution
-  main-stream snapshots, no NVR dependency. Preferred when reachable.
 - **Through an NVR** (`host` = NVR IP, `channel` = the camera's channel) — one
-  credential covers every channel; use this when cameras sit on the NVR's
-  isolated PoE network.
+  host and one credential for every camera; required when cameras sit on the
+  NVR's isolated PoE network. Convenient when pulling many cameras.
+- **Directly** to a camera (`host` = camera IP, `channel: 0`) — no NVR
+  dependency, and the only way to reach a lens the NVR doesn't expose (e.g. a
+  dual-lens camera's second lens).
 
 Developed and tested against a Reolink **RLN36** NVR with **TrackMix WiFi**,
 **OMVI 3i**, and **Video Doorbell WiFi** cameras (HTTPS, self-signed certs).
