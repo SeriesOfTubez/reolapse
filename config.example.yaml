@@ -121,7 +121,12 @@ events_video:
   min_frames: 30
   fps: 30
   crf: 20
-  deflicker_size: 0           # off: deflicker would smooth away lightning flashes
+  deflicker_size: 0           # default for any tag not in deflicker_by_tag
+                              # below. Off by default: deflicker would smooth
+                              # away lightning flashes in storm clips.
+  # deflicker_by_tag:         # per-tag override — e.g. snow has no lightning
+  #   snow: 10                # to protect, so smoothing exposure flicker is
+  #                           # safe (and often looks better) there
 
 webapp:
   host: 0.0.0.0

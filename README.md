@@ -21,6 +21,12 @@ deflickered **daily** video per camera, archives frames into an ever-growing
 captures faster and cuts a dedicated **event** clip. Everything is browsable
 through a bundled single-page web app.
 
+> **Two things to know before you run this:** the web UI has no login (see
+> [Security](#security) — this is a LAN tool, don't expose it to the
+> internet), and this project was built with AI assistance (see
+> [AI-assisted development](#ai-assisted-development) for what that means and
+> what's checked before anything ships).
+
 ---
 
 ## Features
@@ -180,6 +186,7 @@ not: reference them as `${VAR}` and put the values in `.env`. Highlights:
 | `events.weather_enabled` | Storm/snow/rain tagging + burst capture (needs `events.zip` or `latitude`/`longitude`) |
 | `events.lunar_enabled` | Moon-event tagging — no location required |
 | `events_video.tags` | Which tags get their own `<date>_<tag>.mp4` clip (default `storm`, `snow`; any tag works, including moon events) |
+| `events_video.deflicker_size` / `deflicker_by_tag` | Deflicker for event clips — off by default (protects lightning in storm clips), overridable per tag (e.g. enable for `snow`) |
 
 See the inline comments in `config.example.yaml` for the full reference.
 
@@ -207,9 +214,12 @@ for storm/snow/rain conditions. Active tags are appended to
 `data/conditions/<date>.jsonl` and embedded in each frame as a JPEG comment
 (`{"tags":["storm"]}`, visible in exiftool). Storms/snow trigger burst
 capture, and the nightly build renders a clip per event span into the
-**Events** tab (deflicker off, so lightning flashes aren't smoothed away). If
-this is enabled without a resolvable location, storm/snow tagging is skipped
-and the web UI shows a warning banner.
+**Events** tab. Deflicker for these clips is off by default (it would smooth
+away lightning flashes) but is fully configurable — see
+`events_video.deflicker_size` / `deflicker_by_tag` in the config table below
+if you'd like it on for snow, which has no lightning to protect. If weather
+tagging is enabled without a resolvable location, storm/snow tagging is
+skipped and the web UI shows a warning banner.
 
 ## Lunar event detection
 
@@ -248,12 +258,40 @@ frame.
 
 ## Security
 
+- **There is no authentication.** The web UI has no login, no access control,
+  nothing — anyone who can reach port 8080 can browse and download every
+  video. **ReoLapse is a private, LAN-only tool. Do not port-forward it or
+  otherwise expose it to the internet.** If you need remote access, put it on
+  a VPN (Tailscale, WireGuard) or behind a reverse proxy that adds its own
+  auth and TLS — don't rely on ReoLapse itself for either.
 - Credentials live in `.env` (gitignored), never in `config.yaml`.
 - Prefer a **dedicated, least-privilege** camera/NVR account for ReoLapse. The
   Snap API passes credentials as URL parameters, so avoid `&`, `#`, `%` in that
   password.
-- The bundled Flask server is for trusted LAN use. Put it behind a reverse
-  proxy with auth/TLS before exposing it.
+- The bundled Flask server is a dev-grade WSGI server — fine for a trusted
+  LAN, not a hardened production server.
+
+## AI-assisted development
+
+This project was built with AI pair-programming assistance (Claude, via
+Claude Code) under human direction and review — most of the code and docs,
+including this README, were AI-generated. If that's a dealbreaker for you,
+that's a reasonable position; here's what's in place either way so you can
+judge for yourself rather than take it on faith:
+
+- **CI runs security scanning on every push and PR** (see the badge at the
+  top of this README, and [`.github/workflows/security.yml`](.github/workflows/security.yml)):
+  [Gitleaks](https://github.com/gitleaks/gitleaks) for committed secrets,
+  [Semgrep](https://semgrep.dev/) for static analysis, and
+  [Trivy](https://trivy.dev/) for dependency vulnerabilities, container image
+  CVEs, and Dockerfile/IaC misconfiguration.
+- Those scans have already changed real decisions in this repo — e.g. the
+  Docker base image is Alpine instead of Debian-slim specifically because
+  Trivy found hundreds of unfixed CVEs in the latter.
+- All source is here to read; nothing is obfuscated, minified, or vendored
+  without attribution. Issues and PRs are welcome, especially bug reports —
+  AI assistance doesn't mean the code is beyond scrutiny, it means you get to
+  scrutinize it instead of trusting a vendor's black box.
 
 ## Roadmap / ideas
 

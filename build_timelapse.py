@@ -233,6 +233,9 @@ def build_event_videos(cfg, date, camera=None):
         index = [json.loads(line) for line in index_path.read_text(encoding="utf-8").splitlines()
                  if line.strip() and json.loads(line).get("date") != date.isoformat()]
 
+    deflicker_by_tag = ev.get("deflicker_by_tag") or {}
+    default_deflicker = ev.get("deflicker_size", 0)
+
     for cam in selected_cameras(cfg, camera):
         all_frames = day_frames(cfg, cam["name"], date)
         for tag in tags:
@@ -247,8 +250,10 @@ def build_event_videos(cfg, date, camera=None):
                 build_video(
                     frames, out,
                     fps=ev.get("fps", 30), crf=ev.get("crf", 20),
-                    # deflicker off by default: it would suppress lightning
-                    deflicker_size=ev.get("deflicker_size", 0),
+                    # deflicker defaults to off (storm's lightning flashes
+                    # would get smoothed away) but is configurable per tag —
+                    # e.g. snow has no lightning to protect
+                    deflicker_size=deflicker_by_tag.get(tag, default_deflicker),
                     max_height=cfg["daily_video"].get("max_height", 0),
                 )
                 index.append({
