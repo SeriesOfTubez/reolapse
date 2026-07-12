@@ -173,6 +173,11 @@ def cmd_daily(cfg, args):
         build_event_videos(cfg, date, args.camera)
     except Exception:
         log.exception("event video build failed (daily videos are unaffected)")
+    try:
+        import storage_stats
+        storage_stats.write_stats(cfg)
+    except Exception:
+        log.exception("storage stats update failed (daily videos are unaffected)")
 
 
 def tag_spans(cfg, date, tag, gap_minutes=20):

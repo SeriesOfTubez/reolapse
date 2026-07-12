@@ -5,6 +5,7 @@
 """
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -73,6 +74,13 @@ def create_app(cfg):
             "videos": videos,
             "warnings": config_warnings(cfg),
         })
+
+    @app.get("/api/storage")
+    def storage():
+        stats_path = cfg["storage"]["root"] / "storage_stats.json"
+        if not stats_path.exists():
+            return jsonify({"generated_at": None, "cameras": {}, "system": {}})
+        return jsonify(json.loads(stats_path.read_text(encoding="utf-8")))
 
     @app.get("/videos/<camera>/<vtype>/<name>")
     def serve_video(camera, vtype, name):

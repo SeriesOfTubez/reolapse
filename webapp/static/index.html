@@ -130,6 +130,7 @@
     align-items: center;
     justify-content: center;
     padding: var(--space-5);
+    overflow-y: auto;
   }
   video {
     max-width: 100%;
@@ -179,6 +180,44 @@
     border-bottom: 1px solid var(--border);
   }
 
+  #storage-view { width: 100%; max-width: 760px; }
+  .stat-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: var(--space-3);
+  }
+  .stat-card {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+  }
+  .stat-label { color: var(--text-2); font-size: var(--fs-xs); }
+  .stat-value {
+    font-size: 22px;
+    font-weight: var(--fw-semibold);
+    margin: var(--space-1) 0;
+  }
+  .stat-sub { color: var(--text-2); font-size: var(--fs-xs); }
+  .stat-projection {
+    margin: var(--space-4) 0;
+    color: var(--text-2);
+    font-size: var(--fs-sm);
+  }
+  .stat-projection strong { color: var(--text-1); font-weight: var(--fw-medium); }
+  .stat-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+  .stat-table th, .stat-table td {
+    text-align: left;
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border);
+  }
+  .stat-table th { color: var(--text-2); font-weight: var(--fw-regular); }
+  .stat-footnote {
+    margin-top: var(--space-3);
+    color: var(--text-3);
+    font-size: var(--fs-xs);
+  }
+
   @media (max-width: 700px) {
     main { flex-direction: column; }
     #sidebar {
@@ -203,6 +242,7 @@
     <button class="pill active" data-type="daily">Daily</button>
     <button class="pill" data-type="yearly">Yearly</button>
     <button class="pill" data-type="events">Events</button>
+    <button class="pill" data-type="storage">Storage</button>
   </div>
 </header>
 <div id="warnings"></div>
@@ -235,11 +275,11 @@ async function load() {
     const b = document.createElement("button");
     b.className = "pill" + (i === 0 ? " active" : "");
     b.textContent = cam;
-    b.onclick = () => { state.camera = cam; setActive(camBox, b); renderList(); };
+    b.onclick = () => { state.camera = cam; setActive(camBox, b); refresh(); };
     camBox.appendChild(b);
   });
   state.camera = data.cameras[0] || null;
-  renderList();
+  refresh();
 }
 
 function setActive(container, btn) {
@@ -247,11 +287,16 @@ function setActive(container, btn) {
   btn.classList.add("active");
 }
 
+function refresh() {
+  if (state.type === "storage") renderStorage();
+  else renderList();
+}
+
 document.getElementById("types").addEventListener("click", e => {
   if (!e.target.dataset.type) return;
   state.type = e.target.dataset.type;
   setActive(document.getElementById("types"), e.target);
-  renderList();
+  refresh();
 });
 
 function renderList() {
@@ -296,6 +341,66 @@ function play(v, itemEl) {
       b.classList.add("active");
     };
   });
+}
+
+function fmtGB(n) {
+  return n >= 1 ? n.toFixed(2) + " GB" : Math.round(n * 1024) + " MB";
+}
+
+async function renderStorage() {
+  document.getElementById("sidebar").innerHTML = "";
+  const area = document.getElementById("player-area");
+  area.innerHTML = `<div id="empty">Loading storage stats&hellip;</div>`;
+
+  const res = await fetch("/api/storage");
+  const data = await res.json();
+  if (!data.generated_at) {
+    area.innerHTML = `<div id="empty">No storage stats yet.<br>
+      They're generated after the first nightly build (or run
+      <code>storage_stats.py</code> manually).</div>`;
+    return;
+  }
+
+  const s = data.system;
+  const cards = [
+    ["Disk used", `${s.disk_used_pct}%`, `${s.disk_free_gb} GB free of ${s.disk_total_gb} GB`],
+    ["Snapshots (rolling)", fmtGB(s.snapshots_gb), `+${fmtGB(s.snapshots_gb_per_day)}/day`],
+    ["Daily videos (kept forever)", fmtGB(s.daily_video_gb_total), `+${fmtGB(s.daily_video_gb_per_day)}/day`],
+    ["Yearly archive (kept forever)", fmtGB(s.yearly_frames_gb), `+${fmtGB(s.yearly_gb_per_day)}/day`],
+  ];
+  const camRows = Object.entries(data.cameras).map(([name, c]) => `
+    <tr>
+      <td>${name}</td>
+      <td>${c.avg_snapshot_kb} KB</td>
+      <td>${fmtGB(c.snapshots_gb_per_day)}/day</td>
+      <td>${c.daily_video_avg_mb} MB/day</td>
+      <td>${fmtGB(c.yearly_gb_per_day)}/day</td>
+      <td>${c.events_count ? fmtGB(c.events_gb_total) : "—"}</td>
+    </tr>`).join("");
+
+  area.innerHTML = `
+    <div id="storage-view">
+      <div class="stat-cards">
+        ${cards.map(([label, val, sub]) => `
+          <div class="stat-card">
+            <div class="stat-label">${label}</div>
+            <div class="stat-value">${val}</div>
+            <div class="stat-sub">${sub}</div>
+          </div>`).join("")}
+      </div>
+      <div class="stat-projection">
+        Daily-video growth alone projects to <strong>${s.projected_daily_video_30d_gb} GB</strong>
+        in 30 days, <strong>${s.projected_daily_video_365d_gb} GB</strong> in a year, at the current rate.
+      </div>
+      <table class="stat-table">
+        <thead><tr>
+          <th>Camera</th><th>Avg frame</th><th>Snapshots</th>
+          <th>Daily video</th><th>Yearly archive</th><th>Events</th>
+        </tr></thead>
+        <tbody>${camRows}</tbody>
+      </table>
+      <div class="stat-footnote">Updated ${data.generated_at} &middot; refreshed after each nightly build</div>
+    </div>`;
 }
 
 load();

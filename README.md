@@ -51,6 +51,9 @@ through a bundled single-page web app.
   through one Reolink NVR with a single credential.
 - **Bundled web UI.** Browse Daily / Yearly / Event videos per camera, with
   playback-speed controls and downloads. Range requests supported for seeking.
+- **Storage dashboard.** A Storage tab shows per-camera and system-wide disk
+  usage and daily growth rate, updated automatically after every nightly
+  build — see [Storage estimates](#storage-estimates).
 - **Runs anywhere.** A Linux VM with systemd units, or Docker Compose.
 - **Secrets stay out of the repo.** Credentials live in `.env`, referenced from
   config as `${VAR}`.
@@ -93,7 +96,8 @@ Other models exposing the same API should work; reports welcome.
                      ├─►  data/videos/<cam>/daily/<date>.mp4
                      ├─►  data/videos/<cam>/events/<date>_<tag>.mp4
                      ├─►  data/yearly_frames/<cam>/<year>/…   (kept forever)
-                     └─►  data/videos/<cam>/yearly/<year>.mp4
+                     ├─►  data/videos/<cam>/yearly/<year>.mp4
+                     └─►  data/storage_stats.json  (storage_stats.py)
                      │
         webapp/app.py▼  serves the SPA + videos on :8080
 ```
@@ -189,6 +193,63 @@ not: reference them as `${VAR}` and put the values in `.env`. Highlights:
 | `events_video.deflicker_size` / `deflicker_by_tag` | Deflicker for event clips — off by default (protects lightning in storm clips), overridable per tag (e.g. enable for `snow`) |
 
 See the inline comments in `config.example.yaml` for the full reference.
+
+## Storage estimates
+
+The **Storage** tab in the web UI shows live per-camera and system-wide usage
+and daily growth (`storage_stats.py`, refreshed after every nightly build —
+no guessing required once it's running). Before you get there, here's real
+data from the reference deployment (3 Reolink cameras of different
+resolutions, 1 frame/minute, all-day capture) to help you size disk up front:
+
+| Camera | Resolution | Avg JPEG size | Raw snapshots/day | Daily video/day |
+|---|---|---|---|---|
+| Doorbell | 2560×1920 (4.9 MP) | ~450 KB | ~0.6 GB | ~200 MB |
+| PTZ wide lens | 3840×2160 (8.3 MP) | ~1.3 MB | ~1.8 GB | ~290 MB |
+| Dual-lens panorama | 5120×1920 (9.8 MP) | ~1.7 MB | ~2.4 GB | ~470 MB |
+
+Rough rule of thumb: **~0.1–0.2 MB per megapixel per frame**, varying with
+scene complexity and each camera's own JPEG quality setting — the range above
+spans 3 real cameras and isn't a tight line, so treat it as a ballpark, not a
+formula. For a precise number, check the actual size of a few files in
+`data/snapshots/<camera>/` and multiply by how many frames/day you'll capture
+(`86400 / capture.interval_seconds`, or less if `start_time`/`end_time` is set).
+
+What accumulates and what doesn't:
+
+- **Raw snapshots** are a *rolling window* — pruned `storage.keep_snapshots_days`
+  after each day's video builds, so this cost is bounded, not permanent.
+- **Daily videos, yearly archive frames, and event clips are kept forever**
+  by default (there's no built-in retention for them — see
+  [Roadmap](#roadmap--ideas)). This is the number that actually matters for
+  long-term planning. In the reference 3-camera deployment above, daily
+  videos alone grow by **~0.9 GB/day** — roughly **28 GB/month** or **340
+  GB/year** — and that's before adding any storm/snow event clips or a fourth
+  camera.
+- The yearly archive (one JPEG/hour/camera, kept forever) is comparatively
+  tiny: well under 100 MB/day across 3 cameras.
+
+## Performance
+
+Reference deployment: a Proxmox VM with **1 vCPU and 1 GB RAM** (Ubuntu 26.04
+cloud image), on a Proxmox host with an **Intel N95**. With 3 cameras and a
+full day of frames (~1440/camera), the nightly build takes about **45–50
+minutes** total and peaks around **700 MB RAM**. Encoding (`libx264`, preset
+`medium`) is the bottleneck; the hardlink/copy staging step is comparatively
+instant.
+
+Cameras currently build **sequentially, one at a time** (not in parallel), so
+total build time is roughly the sum of each camera's encode time. Within a
+single camera's encode, though, `libx264` threads automatically across
+whatever cores are available — so **more vCPUs should speed up each camera's
+build** (diminishing returns past ~8 threads), and a faster single-thread CPU
+shortens it further. Neither has been benchmarked beyond the reference
+1-vCPU deployment above; reports from other hardware are welcome.
+
+If build time is a problem before you can add cores: lower `daily_video.max_height`
+(fewer pixels to encode) or `capture.interval_seconds` (fewer frames/day) —
+both are configurable. The ffmpeg `-preset` is currently hardcoded to
+`medium`; making it configurable is a reasonable ask if you need it.
 
 ## Usage
 
@@ -299,9 +360,13 @@ judge for yourself rather than take it on faith:
 
 ## Roadmap / ideas
 
-- Re-encode old dailies at a lower bitrate to reclaim space.
+- Re-encode old dailies at a lower bitrate to reclaim space (daily/yearly/event
+  videos have no retention policy today — see [Storage estimates](#storage-estimates)).
 - All-sky / long-exposure night camera support (Raspberry Pi HQ + Allsky).
 - Object-storage (S3/Garage) backend for videos.
+- Parallelize daily builds across cameras (currently sequential — see
+  [Performance](#performance)).
+- Configurable ffmpeg `-preset`, currently hardcoded to `medium`.
 
 ## Contributing
 
