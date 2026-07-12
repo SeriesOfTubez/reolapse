@@ -14,7 +14,7 @@ from pathlib import Path
 
 import requests
 
-log = logging.getLogger("weather")
+log = logging.getLogger("events")
 
 USER_AGENT = "reolink-timelapse-homelab (personal hobby project)"
 
@@ -150,25 +150,54 @@ def open_meteo_tags(lat, lon, timeout=10) -> dict:
     return tags
 
 
+_ZIP_CACHE = {}
+
+
+def resolve_location(cfg) -> tuple:
+    """(lat, lon) from config: explicit latitude/longitude, or a US ZIP resolved
+    via Zippopotam.us (free, no key) and cached for the process."""
+    lat, lon = cfg.get("latitude"), cfg.get("longitude")
+    if lat is not None and lon is not None:
+        return float(lat), float(lon)
+    zip_code = cfg.get("zip") or cfg.get("zip_code")
+    if not zip_code:
+        raise RuntimeError("set weather.zip or weather.latitude/longitude in config")
+    zip_code = str(zip_code).strip()
+    if zip_code not in _ZIP_CACHE:
+        resp = requests.get(f"https://api.zippopotam.us/us/{zip_code}",
+                            headers={"User-Agent": USER_AGENT}, timeout=10)
+        resp.raise_for_status()
+        place = resp.json()["places"][0]
+        _ZIP_CACHE[zip_code] = (float(place["latitude"]), float(place["longitude"]))
+        log.info("resolved ZIP %s -> %.4f, %.4f", zip_code, *_ZIP_CACHE[zip_code])
+    return _ZIP_CACHE[zip_code]
+
+
 def get_active_tags(weather_cfg, cache_dir=None) -> dict:
     """All currently active tags -> human-readable reason.
 
-    Each source is independent; one failing never blocks the others.
+    Each source is independent; one failing never blocks the others. Moon
+    events need no location, so they run even if location lookup fails.
     `cache_dir` stores the Skyfield ephemeris (downloaded once).
     """
-    lat = weather_cfg["latitude"]
-    lon = weather_cfg["longitude"]
     cache_dir = Path(cache_dir) if cache_dir else APP_ROOT / ".ephemeris"
     cache_dir.mkdir(parents=True, exist_ok=True)
+
+    sources = [lambda: moon_tags(dt.date.today(), cache_dir)]
+    try:
+        lat, lon = resolve_location(weather_cfg)
+        sources = [lambda: nws_alert_tags(lat, lon),
+                   lambda: open_meteo_tags(lat, lon)] + sources
+    except Exception as exc:
+        log.warning("location unavailable, weather tags disabled: %s", exc)
+
     tags = {}
-    for source in (lambda: nws_alert_tags(lat, lon),
-                   lambda: open_meteo_tags(lat, lon),
-                   lambda: moon_tags(dt.date.today(), cache_dir)):
+    for source in sources:
         try:
             for tag, reason in source().items():
                 tags.setdefault(tag, reason)
         except Exception as exc:
-            log.warning("weather source failed: %s", exc)
+            log.warning("event source failed: %s", exc)
     for tag in weather_cfg.get("force_tags") or []:  # testing hook
         tags.setdefault(tag, "forced via config")
     return tags

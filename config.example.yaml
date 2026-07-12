@@ -85,8 +85,12 @@ yearly:
 # downloads a ~17 MB ephemeris into <storage.root>/ephemeris.
 weather:
   enabled: false              # set true and fill in your location to use it
-  latitude: 0.0               # your approximate location (any point in your
-  longitude: 0.0              # NWS alert county works)
+  zip: "12345"                # US ZIP for your location, resolved to lat/lon
+                              # via zippopotam.us (free, no key). Or set
+                              # latitude/longitude below to skip the lookup
+                              # (required outside the US).
+  # latitude: 0.0
+  # longitude: 0.0
   poll_minutes: 5
   burst_tags: [storm, snow]   # tags that switch capture to the burst interval
   burst_interval_seconds: 10  # use a value that divides interval_seconds

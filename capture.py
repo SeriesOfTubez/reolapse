@@ -19,7 +19,7 @@ import uuid
 import requests
 import urllib3
 
-import weather
+import events
 from common import load_config, snapshots_dir, videos_dir
 
 log = logging.getLogger("capture")
@@ -52,7 +52,7 @@ class Conditions:
         if self._last_poll and (now - self._last_poll).total_seconds() < poll_secs:
             return
         self._last_poll = now
-        self.tags = weather.get_active_tags(self.wcfg, self.ephem_dir)
+        self.tags = events.get_active_tags(self.wcfg, self.ephem_dir)
         if set(self.tags) != self._known:
             self._known = set(self.tags)
             log.info("conditions now: %s", sorted(self.tags) or "clear")

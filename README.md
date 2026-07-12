@@ -171,7 +171,7 @@ python webapp/app.py            # serve the web UI
 
 ## Weather tagging & storm bursts
 
-With `weather.enabled: true` and your `latitude`/`longitude` set, capture polls
+With `weather.enabled: true` and your location set (`zip`, or `latitude`/`longitude`), capture polls
 NWS + Open-Meteo every `poll_minutes`. Active tags are appended to
 `data/conditions/<date>.jsonl` and embedded in each frame as a JPEG comment
 (`{"tags":["storm"]}`, visible in exiftool). Storms/snow trigger burst capture,
