@@ -39,7 +39,7 @@ def require_ffmpeg():
         )
 
 
-def build_video(frames, out_path: Path, *, fps, crf, deflicker_size, max_height=0):
+def build_video(frames, out_path: Path, *, fps, crf, deflicker_size, max_height=0, metadata=None):
     """Encode an ordered list of JPEGs into an mp4.
 
     Frames are hardlinked (copy fallback) into a temp dir as a numbered
@@ -48,6 +48,10 @@ def build_video(frames, out_path: Path, *, fps, crf, deflicker_size, max_height=
     the output, NOT in the system temp: /tmp is often a small tmpfs that a
     day's worth of frames overflows, and staying on the snapshots' filesystem
     lets the hardlinks succeed so nothing is copied at all.
+
+    `metadata` (e.g. {"season": "summer"}) is written as MP4 metadata tags —
+    readable with `ffprobe` or exiftool, same spirit as the JPEG comment tags
+    embedded on frames.
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="timelapse_", dir=out_path.parent) as tmp:
@@ -72,9 +76,14 @@ def build_video(frames, out_path: Path, *, fps, crf, deflicker_size, max_height=
             "-i", str(tmp / "%06d.jpg"),
             "-vf", ",".join(filters),
             "-c:v", "libx264", "-preset", "medium", "-crf", str(crf),
-            "-movflags", "+faststart",
-            str(out_path),
         ]
+        for key, value in (metadata or {}).items():
+            cmd += ["-metadata", f"{key}={value}"]
+        # use_metadata_tags: the mov/mp4 muxer otherwise only writes a fixed
+        # whitelist of "known" keys (comment, artist, ...) and silently drops
+        # anything else, including custom keys like "season".
+        movflags = "+faststart+use_metadata_tags" if metadata else "+faststart"
+        cmd += ["-movflags", movflags, str(out_path)]
         subprocess.run(cmd, check=True)
     log.info("wrote %s (%d frames, %.1f MB)", out_path, len(frames),
              out_path.stat().st_size / 1e6)
@@ -154,9 +163,30 @@ def day_frames(cfg, cam_name, date):
     return sorted(day_dir.glob("*.jpg"))
 
 
+def season_metadata(cfg, date):
+    """{"season": "summer"} if events.season_enabled, else None. Best-effort —
+    a lookup failure never blocks the video build it's attached to."""
+    if not (cfg.get("events") or {}).get("season_enabled"):
+        return None
+    try:
+        import events as events_mod
+        ecfg = cfg["events"]
+        lat = None
+        try:
+            lat, _ = events_mod.resolve_location(ecfg)
+        except Exception:
+            pass  # season_for_date defaults to Northern Hemisphere without one
+        ephem_dir = cfg["storage"]["root"] / "ephemeris"
+        return {"season": events_mod.season_for_date(date, ephem_dir, lat)}
+    except Exception:
+        log.exception("season metadata lookup failed")
+        return None
+
+
 def cmd_daily(cfg, args):
     start = time.time()
     date = resolve_date(args.date)
+    season = season_metadata(cfg, date)
     for cam in selected_cameras(cfg, args.camera):
         frames = day_frames(cfg, cam["name"], date)
         if len(frames) < MIN_FRAMES:
@@ -169,6 +199,7 @@ def cmd_daily(cfg, args):
             fps=d["fps"], crf=d["crf"],
             deflicker_size=d.get("deflicker_size", 0),
             max_height=d.get("max_height", 0),
+            metadata=season,
         )
         archive_yearly_frames(cfg, cam["name"], date, frames)
 
@@ -360,6 +391,7 @@ def build_event_videos(cfg, date, camera=None):
 
     deflicker_by_tag = ev.get("deflicker_by_tag") or {}
     default_deflicker = ev.get("deflicker_size", 0)
+    season = season_metadata(cfg, date)
 
     for cam in selected_cameras(cfg, camera):
         all_frames = day_frames(cfg, cam["name"], date)
@@ -380,6 +412,7 @@ def build_event_videos(cfg, date, camera=None):
                     # e.g. snow has no lightning to protect
                     deflicker_size=deflicker_by_tag.get(tag, default_deflicker),
                     max_height=cfg["daily_video"].get("max_height", 0),
+                    metadata=season,
                 )
                 index.append({
                     "date": date.isoformat(), "tag": tag, "camera": cam["name"],

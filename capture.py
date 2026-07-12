@@ -37,7 +37,8 @@ class Conditions:
     def __init__(self, cfg):
         wcfg = cfg.get("events") or {}
         self.wcfg = wcfg
-        self.enabled = bool(wcfg.get("weather_enabled")) or bool(wcfg.get("lunar_enabled"))
+        self.enabled = (bool(wcfg.get("weather_enabled")) or bool(wcfg.get("lunar_enabled"))
+                        or bool(wcfg.get("season_enabled")))
         self.log_dir = cfg["storage"]["root"] / "conditions"
         self.ephem_dir = cfg["storage"]["root"] / "ephemeris"
         self.tags = {}

@@ -42,9 +42,13 @@ through a bundled single-page web app.
 - **Lunar event detection.** Computes full/blue/harvest moons and lunar
   eclipses (blood moon = total) locally via Skyfield — no location or API
   needed.
-- **Frame tagging & metadata.** Active conditions (`storm`, `snow`, `rain`,
-  `full-moon`, `blue-moon`, `harvest-moon`, `blood-moon`, `lunar-eclipse`) are logged and embedded in each
-  JPEG, so the data stays self-describing and searchable later.
+- **Season tagging.** Every frame and video is tagged with its astronomical
+  season (spring/summer/fall/winter), hemisphere-aware — useful for filtering
+  once a search UI exists, and it's what "changing seasons" is about anyway.
+- **Frame & video tagging.** Active conditions (`storm`, `snow`, `rain`,
+  `full-moon`, `blue-moon`, `harvest-moon`, `blood-moon`, `lunar-eclipse`,
+  the season) are logged and embedded in each JPEG's comment and each video's
+  metadata, so the data stays self-describing and searchable later.
 - **PTZ-aware.** For auto-tracking cameras, frames captured away from the
   camera's home position are quarantined so they don't jerk the timelapse.
 - **Direct or via NVR.** Talk to each camera directly, or pull every channel
@@ -196,6 +200,7 @@ not: reference them as `${VAR}` and put the values in `.env`. Highlights:
 | `yearly.retention_years` | Delete a yearly video once it's this many years old; `0` = forever. Cheap to set low — see [Storage estimates](#storage-estimates) |
 | `events.weather_enabled` | Storm/snow/rain tagging + burst capture (needs `events.zip` or `latitude`/`longitude`) |
 | `events.lunar_enabled` | Moon-event tagging — no location required |
+| `events.season_enabled` | Spring/summer/fall/winter tagging on frames + video metadata — no location required |
 | `events_video.tags` | Which tags get their own `<date>_<tag>.mp4` clip (default `storm`, `snow`; any tag works, including moon events) |
 | `events_video.deflicker_size` / `deflicker_by_tag` | Deflicker for event clips — off by default (protects lightning in storm clips), overridable per tag (e.g. enable for `snow`) |
 | `events_video.retention_days` | Delete an event clip this many days after its date; `0` = forever |
@@ -341,6 +346,23 @@ check visibility against.
 Lunar tags are metadata only by default — they don't trigger burst capture.
 Add them to `events_video.tags` if you want an automatic clip, e.g.
 `2026-03-03_blood-moon.mp4`.
+
+## Season tagging
+
+With `events.season_enabled: true`, every frame and video gets tagged with
+its astronomical season (`spring`/`summer`/`fall`/`winter`), computed from
+the real equinox/solstice instants each year via Skyfield — not a fixed
+calendar approximation. No location is required: it defaults to Northern
+Hemisphere seasons, which is right for most current users; set a location if
+you're south of the equator so the tags flip correctly (July is winter
+there, not summer).
+
+Frames get it the same way as weather/lunar tags — a JPEG comment. Videos
+get it as MP4 metadata (`season=summer`), readable with `ffprobe -show_format`
+or exiftool. If you're curious why that needed a nonstandard `ffmpeg` flag:
+the mov/mp4 muxer only writes a fixed whitelist of "known" keys (`comment`,
+`artist`, …) by default and silently drops anything else, including custom
+keys like `season` — `-movflags use_metadata_tags` turns that off.
 
 ## PTZ cameras
 

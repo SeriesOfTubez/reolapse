@@ -97,6 +97,44 @@ def _autumn_equinox(year, cache_dir):
     return _SKY[key]
 
 
+# almanac.seasons() event codes: 0 = March equinox, 1 = June solstice,
+# 2 = September equinox, 3 = December solstice. Which season each one STARTS
+# depends on hemisphere — the event itself is the same instant everywhere.
+NORTHERN_SEASON_NAMES = {0: "spring", 1: "summer", 2: "fall", 3: "winter"}
+SOUTHERN_SEASON_NAMES = {0: "fall", 1: "winter", 2: "spring", 3: "summer"}
+
+
+def _season_boundaries(year, cache_dir):
+    """[(event code, Skyfield Time), ...] for the four equinox/solstice
+    instants that fall within a calendar year (cached per year)."""
+    key = ("season_bounds", year)
+    if key not in _SKY:
+        from skyfield import almanac
+        ts, eph = _skyfield(cache_dir)
+        times, kinds = almanac.find_discrete(
+            ts.utc(year, 1, 1), ts.utc(year + 1, 1, 1), almanac.seasons(eph))
+        _SKY[key] = list(zip((int(k) for k in kinds), times))
+    return _SKY[key]
+
+
+def season_for_date(date, cache_dir, lat=None):
+    """Which astronomical season `date` falls in, hemisphere-aware (defaults
+    to Northern Hemisphere if `lat` is unavailable — the common case, and
+    matches unset/no-location deployments).
+    """
+    bounds = (_season_boundaries(date.year - 1, cache_dir)
+              + _season_boundaries(date.year, cache_dir))
+    local_bounds = sorted((_local_date(t), kind) for kind, t in bounds)
+
+    names = SOUTHERN_SEASON_NAMES if (lat is not None and lat < 0) else NORTHERN_SEASON_NAMES
+    current = local_bounds[0][1]
+    for boundary_date, kind in local_bounds:
+        if boundary_date > date:
+            break
+        current = kind
+    return names[current]
+
+
 def sunrise_sunset(date, lat, lon, cache_dir):
     """Local (sunrise, sunset) times as datetime.time for a given date and
     location. Either may be None during polar day/night, when the sun
@@ -247,10 +285,12 @@ def resolve_location(cfg) -> tuple:
 def get_active_tags(events_cfg, cache_dir=None) -> dict:
     """All currently active tags -> human-readable reason.
 
-    `events.weather_enabled` and `events.lunar_enabled` are independent:
-    weather tagging needs a resolvable location, lunar phase tags don't (only
-    eclipse-visibility checking benefits from one). Each source is
-    independent; one failing never blocks the others.
+    `events.weather_enabled`, `events.lunar_enabled`, and `events.season_enabled`
+    are independent: weather tagging needs a resolvable location, lunar phase
+    tags don't (only eclipse-visibility checking benefits from one), and
+    season tagging only uses location to pick the correct hemisphere (it
+    defaults to Northern without one). Each source is independent; one
+    failing never blocks the others.
     `cache_dir` stores the Skyfield ephemeris (downloaded once).
     """
     cache_dir = Path(cache_dir) if cache_dir else APP_ROOT / ".ephemeris"
@@ -258,22 +298,26 @@ def get_active_tags(events_cfg, cache_dir=None) -> dict:
 
     weather_on = bool(events_cfg.get("weather_enabled"))
     lunar_on = bool(events_cfg.get("lunar_enabled"))
+    season_on = bool(events_cfg.get("season_enabled"))
 
     lat = lon = None
-    if weather_on or lunar_on:
+    if weather_on or lunar_on or season_on:
         try:
             lat, lon = resolve_location(events_cfg)
         except Exception as exc:
             if weather_on:
                 log.warning("weather_enabled but location unresolved, "
                             "skipping storm/snow tagging: %s", exc)
-            # lunar tagging proceeds without lat/lon regardless
+            # lunar/season tagging proceed without lat/lon regardless
 
     sources = []
     if weather_on and lat is not None:
         sources += [lambda: nws_alert_tags(lat, lon), lambda: open_meteo_tags(lat, lon)]
     if lunar_on:
         sources.append(lambda: moon_tags(dt.date.today(), cache_dir, lat, lon))
+    if season_on:
+        sources.append(lambda: {season_for_date(dt.date.today(), cache_dir, lat):
+                                 "astronomical season"})
 
     tags = {}
     for source in sources:

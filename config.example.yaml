@@ -120,10 +120,19 @@ yearly:
 #                    still fires the phase math without one). First use
 #                    downloads a ~17 MB ephemeris into <storage.root>/ephemeris.
 #
-# Active tags are logged (data/conditions/) and embedded in each frame.
+#   season_enabled   Tags every frame and video with the current astronomical
+#                    season (spring/summer/fall/winter). NO location required
+#                    — defaults to Northern Hemisphere; set a location to get
+#                    the correct season south of the equator. Cheap and
+#                    useful for a project literally about the changing
+#                    seasons — reasonable to leave on.
+#
+# Active tags are logged (data/conditions/) and embedded in each frame; video
+# metadata gets the season too (readable with ffprobe/exiftool).
 events:
   weather_enabled: false
   lunar_enabled: false
+  season_enabled: false
   zip: "12345"                # US ZIP, resolved to lat/lon via zippopotam.us
                               # (free, no key). Or set latitude/longitude
                               # below to skip the lookup.
