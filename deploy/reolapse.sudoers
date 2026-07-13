@@ -1,0 +1,13 @@
+# ReoLapse — support for the Config page's "Restart services" button.
+#
+# Grants the service user permission to restart ONLY ReoLapse's own two
+# services without a password. Nothing else — no broad sudo.
+#
+# Install it (validate FIRST so a typo can't lock you out of sudo):
+#   sudo visudo -cf deploy/reolapse.sudoers \
+#     && sudo install -m 0440 -o root -g root deploy/reolapse.sudoers /etc/sudoers.d/reolapse
+#
+# If you didn't use the defaults, edit the two spots below first:
+#   - "ubuntu"              -> the User= from your systemd units
+#   - "/usr/bin/systemctl"  -> the output of `command -v systemctl` on your host
+ubuntu ALL=(root) NOPASSWD: /usr/bin/systemctl restart reolapse-capture.service, /usr/bin/systemctl restart reolapse-web.service

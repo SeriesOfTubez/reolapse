@@ -171,6 +171,34 @@ Open <http://localhost:8080>. Three services start: `capture` (continuous),
 > x86-64-v2 CPU baseline to the guest — see [Requirements](#requirements).
 > Proxmox's default CPU type doesn't; `host` or `x86-64-v3` does.
 
+### Easy install (one command)
+
+For a Debian/Ubuntu host with systemd. Installs the system packages, clones into
+`/opt/reolapse`, sets up the virtualenv, installs and enables the systemd units,
+starts the web UI, and (unless you opt out) adds the scoped sudo rule for the
+Config page's Restart button:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SeriesOfTubez/reolapse/main/install.sh | bash
+```
+
+Piping a script into your shell means running it unread — reasonable to look
+first (a good habit for any `curl | bash`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SeriesOfTubez/reolapse/main/install.sh -o install.sh
+less install.sh
+bash install.sh
+```
+
+Run it as a normal user with sudo — **not** as root. It deliberately stops short
+of capturing: you still fill in `config.yaml` and `.env` (or use the web UI's
+Config tab), then `sudo systemctl start reolapse-capture.service` — the script
+prints the exact next steps. Env-var options: `REOLAPSE_DIR=` (install location),
+`REOLAPSE_BRANCH=`, `REOLAPSE_SKIP_SUDOERS=1`.
+
+### Manual install
+
 ```bash
 sudo mkdir -p /opt/reolapse && sudo chown "$USER" /opt/reolapse
 git clone https://github.com/SeriesOfTubez/reolapse.git /opt/reolapse
@@ -197,6 +225,16 @@ sudo systemctl enable --now reolapse-capture.service \
 
 Set the machine's timezone (`sudo timedatectl set-timezone …`) so capture days
 line up with your local midnight.
+
+**(Optional) Enable the Config page's Restart button.** A ready-made, scoped
+sudo drop-in ships in `deploy/` — validate it, then install it (edit the user
+and `systemctl` path in the file first if you didn't use `ubuntu` +
+`/opt/reolapse`):
+
+```bash
+sudo visudo -cf deploy/reolapse.sudoers \
+  && sudo install -m 0440 -o root -g root deploy/reolapse.sudoers /etc/sudoers.d/reolapse
+```
 
 ## Configuration
 
@@ -253,15 +291,13 @@ dropdown, radio, or text field.
   `systemctl restart reolapse-capture.service` and
   `reolapse-web.service` for you, so you don't need shell access just to
   apply a config change. It requires a narrowly-scoped passwordless sudo rule
-  — add a file at `/etc/sudoers.d/reolapse` containing:
-  ```
-  ubuntu ALL=(root) NOPASSWD: /usr/bin/systemctl restart reolapse-capture.service, /usr/bin/systemctl restart reolapse-web.service
-  ```
-  (`ubuntu` matches the `User=` in `deploy/*.service` — change it to match if
-  you edited that, and confirm `/usr/bin/systemctl` matches `which systemctl`
-  on your host). Without this rule the button fails with a clear error
-  instead of hanging. Docker deployments don't have `systemctl` at all — the
-  button detects this and tells you to run `docker compose restart` instead.
+  (only those two restart commands, nothing else). The **easy installer sets
+  this up automatically**; for a manual install, install the ready-made
+  `deploy/reolapse.sudoers` drop-in (see
+  [Install on a Linux VM](#install-on-a-linux-vm-systemd)). Without the rule
+  the button just fails with a clear error instead of hanging. Docker
+  deployments don't have `systemctl` at all — the button detects this and
+  tells you to run `docker compose restart` instead.
 - **Comments are not preserved.** This editor round-trips the YAML as data,
   not text, so saving from the UI strips out `config.yaml`'s hand-written
   comments. A backup of the previous file is written to `config.yaml.bak`
