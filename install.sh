@@ -29,6 +29,12 @@ REPO_URL="https://github.com/SeriesOfTubez/reolapse.git"
 DEST="${REOLAPSE_DIR:-/opt/reolapse}"
 BRANCH="${REOLAPSE_BRANCH:-main}"
 
+# The user/group the services will run as = whoever runs this script. Use
+# `id` rather than $USER/$GROUPS, which aren't reliably set under `curl | bash`
+# (a non-login shell). The units ship with User=ubuntu; we retarget them below.
+RUN_USER="$(id -un)"
+RUN_GROUP="$(id -gn)"
+
 if [ -t 1 ]; then
   c_bold=$'\033[1m'; c_grn=$'\033[32m'; c_ylw=$'\033[33m'; c_red=$'\033[31m'; c_rst=$'\033[0m'
 else
@@ -58,7 +64,7 @@ install_packages() {
 
 fetch_source() {
   sudo mkdir -p "$DEST"
-  sudo chown -R "$USER:$(id -gn)" "$DEST"
+  sudo chown -R "$RUN_USER:$RUN_GROUP" "$DEST"
   if [ -d "$DEST/.git" ]; then
     info "Updating existing checkout at $DEST…"
     git -C "$DEST" fetch --depth 1 origin "$BRANCH"
@@ -97,10 +103,10 @@ setup_config() {
 }
 
 install_units() {
-  info "Installing systemd units (User=$USER, dir=$DEST)…"
+  info "Installing systemd units (User=$RUN_USER, dir=$DEST)…"
   local tmp; tmp="$(mktemp -d)"
   for f in "$DEST"/deploy/reolapse-*.service "$DEST"/deploy/reolapse-*.timer; do
-    sed -e "s|^User=ubuntu$|User=$USER|" -e "s|/opt/reolapse|$DEST|g" \
+    sed -e "s|^User=ubuntu$|User=$RUN_USER|" -e "s|/opt/reolapse|$DEST|g" \
         "$f" > "$tmp/$(basename "$f")"
   done
   sudo cp "$tmp"/reolapse-*.service "$tmp"/reolapse-*.timer /etc/systemd/system/
@@ -118,7 +124,7 @@ install_sudoers() {
   cat > "$tmp" <<EOF
 # ReoLapse: let the service user restart ONLY its own services without a
 # password, so the Config page's "Restart services" button works. Nothing else.
-$USER ALL=(root) NOPASSWD: $sctl restart reolapse-capture.service, $sctl restart reolapse-web.service
+$RUN_USER ALL=(root) NOPASSWD: $sctl restart reolapse-capture.service, $sctl restart reolapse-web.service
 EOF
   if sudo visudo -cf "$tmp" >/dev/null; then
     sudo install -m 0440 -o root -g root "$tmp" /etc/sudoers.d/reolapse

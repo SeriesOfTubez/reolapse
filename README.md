@@ -174,9 +174,10 @@ Open <http://localhost:8080>. Three services start: `capture` (continuous),
 ### Easy install (one command)
 
 For a Debian/Ubuntu host with systemd. Installs the system packages, clones into
-`/opt/reolapse`, sets up the virtualenv, installs and enables the systemd units,
-starts the web UI, and (unless you opt out) adds the scoped sudo rule for the
-Config page's Restart button:
+`/opt/reolapse`, sets up the virtualenv, installs and enables the systemd units
+**for the user running the script** (retargeting the units' default `User=`, so
+you don't need an `ubuntu` user), starts the web UI, and (unless you opt out)
+adds the scoped sudo rule for the Config page's Restart button:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SeriesOfTubez/reolapse/main/install.sh | bash
