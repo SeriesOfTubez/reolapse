@@ -109,6 +109,17 @@ Other models exposing the same API should work; reports welcome.
 > capture a second lens (e.g. a dual-lens unit's wide + tele), address that
 > camera directly and add each lens as its own `channel`.
 
+> **Home Hub / Home Hub Pro (untested):** the Home Hub exposes the same CGI
+> API and presents its cameras as channels behind the hub's IP, so in
+> principle it should work exactly like an NVR — set `host` to the hub and a
+> `channel` per camera. This is inferred from Reolink's API and the official
+> Home Assistant integration (which fully supports the hubs); it hasn't been
+> tested with ReoLapse yet, so reports are very welcome. **Caveat for battery
+> cameras:** requesting a snapshot wakes a sleeping battery camera for
+> 10–30s, so ReoLapse's interval polling would keep it awake and drain the
+> battery fast. Only practical with **continuously-powered** cameras behind
+> the hub (wired, or a battery cam left on permanent USB power).
+
 ## How it works
 
 ```
