@@ -1,0 +1,90 @@
+name: Bug report
+description: Something isn't working the way you expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this! Two quick things first:
+        - Please skim [existing issues](../issues?q=is%3Aissue) so we don't duplicate.
+        - **Never paste secrets.** Redact passwords/tokens and don't paste your `.env`.
+          `config.yaml` should only ever contain `${VAR}` references anyway — and scrub
+          camera IPs/hostnames from logs if you'd rather not share them.
+  - type: input
+    id: version
+    attributes:
+      label: ReoLapse version
+      description: Commit hash (`git rev-parse --short HEAD`) or "latest main".
+      placeholder: "e.g. ccfa7c6, or latest main"
+    validations:
+      required: true
+  - type: dropdown
+    id: deploy
+    attributes:
+      label: How are you running it?
+      options:
+        - systemd on a Linux host
+        - Docker Compose
+        - Manually (python directly)
+        - Other (describe below)
+    validations:
+      required: true
+  - type: dropdown
+    id: connection
+    attributes:
+      label: How does ReoLapse reach your cameras?
+      options:
+        - Through an NVR
+        - Directly to the camera(s)
+        - Both
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: Reolink hardware
+      description: NVR model (if any) and camera model(s). This really helps — most compatibility issues are model-specific.
+      placeholder: "e.g. RLN36 NVR + TrackMix WiFi, OMVI 3i, Video Doorbell WiFi"
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: OS, Python, and ffmpeg versions
+      placeholder: "e.g. Ubuntu 24.04, Python 3.12, ffmpeg 7.0"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what did you expect?
+      description: Describe the actual behaviour and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs / output
+      description: "Service logs (`journalctl -u reolapse-capture -u reolapse-web`, or `docker compose logs`) or the failing command's output. Redact secrets first."
+      render: shell
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and didn't find a duplicate.
+          required: true
+        - label: I've removed any secrets (passwords, tokens, `.env` contents) from what I'm pasting.
+          required: true

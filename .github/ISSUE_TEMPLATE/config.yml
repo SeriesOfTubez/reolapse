@@ -1,0 +1,10 @@
+# Force new issues through one of the forms above so reports include the
+# basics. Flip to `true` if you'd rather also allow free-form blank issues.
+blank_issues_enabled: false
+
+# Escape hatch for usage questions / general feedback so they don't land in the
+# bug tracker (GitHub Discussions is enabled on the repo).
+contact_links:
+  - name: Question or general feedback
+    url: https://github.com/SeriesOfTubez/reolapse/discussions
+    about: For usage questions, ideas, and show-and-tell — please use Discussions.

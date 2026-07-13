@@ -1,0 +1,35 @@
+name: Feature request / idea
+description: Suggest an improvement or a new capability
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: "Got an idea? Great — a quick look through [existing issues](../issues?q=is%3Aissue) first helps avoid duplicates."
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: What are you trying to do that's hard or impossible today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to see?
+      description: Your proposed solution or behaviour — rough is fine.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives / workarounds you've considered
+    validations:
+      required: false
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware context (optional)
+      description: Relevant if the idea is specific to a camera/NVR model.
+      placeholder: "e.g. RLN36 + TrackMix WiFi"
+    validations:
+      required: false
