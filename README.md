@@ -213,9 +213,31 @@ cp .env.example .env                  # set REOLINK_PASSWORD
 chmod 600 .env config.yaml
 ```
 
-Test one capture (`venv/bin/python capture.py -v` — a JPEG should appear under
-`data/snapshots/…`), then install the services. The units in `deploy/` assume
-user `ubuntu` and `/opt/reolapse` — edit `User=`/paths if yours differ:
+**What you must configure** before the services will work:
+
+1. **`config.yaml`** — your cameras (host/channel/name), and optionally location
+   and capture settings. See [Configuration](#configuration) below for every
+   field.
+2. **`.env`** — set `REOLINK_PASSWORD` (and any extra `REOLINK_PASSWORD_*`) to
+   your real camera/NVR password(s). `config.yaml` only ever references these by
+   name, never the literal value.
+
+Test one capture before wiring up the services (`venv/bin/python capture.py -v` —
+a JPEG should appear under `data/snapshots/…`).
+
+**Then point the systemd units at your setup.** The units in `deploy/` are
+written for the defaults **`User=ubuntu`** and **`/opt/reolapse`** — if either
+differs for you they won't start, so retarget them first:
+
+```bash
+# Set User= to the account the services run as (skip if you really use "ubuntu"):
+sed -i "s/^User=ubuntu$/User=$(id -un)/" deploy/*.service
+
+# Only if you installed somewhere other than /opt/reolapse, fix the paths too:
+# sed -i "s|/opt/reolapse|/your/install/path|g" deploy/*.service
+```
+
+Now install and enable them:
 
 ```bash
 sudo cp deploy/*.service deploy/*.timer /etc/systemd/system/
@@ -224,15 +246,18 @@ sudo systemctl enable --now reolapse-capture.service \
      reolapse-web.service reolapse-daily.timer reolapse-yearly.timer
 ```
 
-Set the machine's timezone (`sudo timedatectl set-timezone …`) so capture days
-line up with your local midnight.
+Finally, set the machine's timezone (`sudo timedatectl set-timezone …`) so
+capture days line up with your local midnight.
 
 **(Optional) Enable the Config page's Restart button.** A ready-made, scoped
-sudo drop-in ships in `deploy/` — validate it, then install it (edit the user
-and `systemctl` path in the file first if you didn't use `ubuntu` +
-`/opt/reolapse`):
+sudo drop-in ships in `deploy/`. It also defaults to user `ubuntu`, so set it to
+your account first (and confirm the `systemctl` path matches
+`command -v systemctl` — it's `/usr/bin/systemctl` on most systems), then
+validate and install it:
 
 ```bash
+sed -i "s/^ubuntu /$(id -un) /" deploy/reolapse.sudoers   # set your user
+
 sudo visudo -cf deploy/reolapse.sudoers \
   && sudo install -m 0440 -o root -g root deploy/reolapse.sudoers /etc/sudoers.d/reolapse
 ```
