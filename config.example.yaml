@@ -76,6 +76,10 @@ storage:
 daily_video:
   fps: 30
   crf: 20                     # x264 quality; lower = better/bigger (18-23 sensible)
+  preset: medium               # x264 encode speed vs. compression: ultrafast,
+                              # superfast, veryfast, faster, fast, medium
+                              # (default), slow, slower, veryslow. Slower =
+                              # smaller file at the same crf, more CPU time.
   deflicker_size: 10          # frames in the deflicker averaging window; 0 disables
   max_height: 1440            # downscale taller sources; 0 = keep original height
   retention_days: 0           # delete a camera's daily .mp4 this many days after
@@ -90,6 +94,7 @@ yearly:
   video_window: "08:00-16:30" # render only daylight hours; "" = whole day
   fps: 30
   crf: 20
+  preset: medium               # see daily_video.preset above
   deflicker_size: 15          # wider window: day-to-day exposure varies more
   retention_years: 0          # delete a camera's yearly .mp4 once it's more than
                               # this many years old; 0 = keep forever. Cheap to
@@ -148,6 +153,7 @@ events_video:
   min_frames: 30
   fps: 30
   crf: 20
+  preset: medium               # see daily_video.preset above
   deflicker_size: 0           # default for any tag not in deflicker_by_tag
                               # below. Off by default: deflicker would smooth
                               # away lightning flashes in storm clips.

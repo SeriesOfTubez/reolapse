@@ -237,11 +237,24 @@ dropdown, radio, or text field.
   scratch, so things like a camera's `ptz_home` block or
   `events_video.deflicker_by_tag` survive a save untouched even though
   there's no form control for them yet.
-- **Saving does not restart anything.** The web UI picks up most changes on
-  next page load (accent color is immediate), but `capture.py` and
-  `build_timelapse.py` are separate processes — restart
-  `reolapse-capture`/`reolapse-web` (or `docker compose restart`) to apply a
-  saved change there.
+- **Saving does not restart anything by itself.** The web UI picks up most
+  changes on next page load (accent color is immediate), but `capture.py` and
+  `build_timelapse.py` are separate processes — they only pick up a saved
+  change after a restart.
+- **Restart services button.** On a systemd deployment, the Config page's
+  footer has a **Restart services** button that runs
+  `systemctl restart reolapse-capture.service` and
+  `reolapse-web.service` for you, so you don't need shell access just to
+  apply a config change. It requires a narrowly-scoped passwordless sudo rule
+  — add a file at `/etc/sudoers.d/reolapse` containing:
+  ```
+  ubuntu ALL=(root) NOPASSWD: /usr/bin/systemctl restart reolapse-capture.service, /usr/bin/systemctl restart reolapse-web.service
+  ```
+  (`ubuntu` matches the `User=` in `deploy/*.service` — change it to match if
+  you edited that, and confirm `/usr/bin/systemctl` matches `which systemctl`
+  on your host). Without this rule the button fails with a clear error
+  instead of hanging. Docker deployments don't have `systemctl` at all — the
+  button detects this and tells you to run `docker compose restart` instead.
 - **Comments are not preserved.** This editor round-trips the YAML as data,
   not text, so saving from the UI strips out `config.yaml`'s hand-written
   comments. A backup of the previous file is written to `config.yaml.bak`
@@ -324,9 +337,9 @@ required.
 Reference deployment: a Proxmox VM with **1 vCPU and 1 GB RAM** (Ubuntu 26.04
 cloud image), on a Proxmox host with an **Intel N95**. With 3 cameras and a
 full day of frames (~1440/camera), the nightly build takes about **45–50
-minutes** total and peaks around **700 MB RAM**. Encoding (`libx264`, preset
-`medium`) is the bottleneck; the hardlink/copy staging step is comparatively
-instant.
+minutes** total and peaks around **700 MB RAM**. Encoding (`libx264`, default
+preset `medium`) is the bottleneck; the hardlink/copy staging step is
+comparatively instant.
 
 Cameras currently build **sequentially, one at a time** (not in parallel), so
 total build time is roughly the sum of each camera's encode time. Within a
@@ -337,9 +350,10 @@ shortens it further. Neither has been benchmarked beyond the reference
 1-vCPU deployment above; reports from other hardware are welcome.
 
 If build time is a problem before you can add cores: lower `daily_video.max_height`
-(fewer pixels to encode) or `capture.interval_seconds` (fewer frames/day) —
-both are configurable. The ffmpeg `-preset` is currently hardcoded to
-`medium`; making it configurable is a reasonable ask if you need it.
+(fewer pixels to encode), `capture.interval_seconds` (fewer frames/day), or
+the `preset` for the video type you're building (`daily_video.preset`,
+`yearly.preset`, `events_video.preset` — faster x264 presets trade a larger
+file for less CPU time). All are editable from the Config page.
 
 The Storage tab tracks your **own** build times (an "avg build time" card,
 averaged over the last 60 nightly builds) — that's the number to trust for
@@ -519,7 +533,6 @@ judge for yourself rather than take it on faith:
 - Object-storage (S3/Garage) backend for videos.
 - Parallelize daily builds across cameras (currently sequential — see
   [Performance](#performance)).
-- Configurable ffmpeg `-preset`, currently hardcoded to `medium`.
 
 ## Contributing
 

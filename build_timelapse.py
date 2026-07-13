@@ -39,7 +39,12 @@ def require_ffmpeg():
         )
 
 
-def build_video(frames, out_path: Path, *, fps, crf, deflicker_size, max_height=0, metadata=None):
+X264_PRESETS = ("ultrafast", "superfast", "veryfast", "faster", "fast",
+                "medium", "slow", "slower", "veryslow")
+
+
+def build_video(frames, out_path: Path, *, fps, crf, deflicker_size, max_height=0,
+                metadata=None, preset="medium"):
     """Encode an ordered list of JPEGs into an mp4.
 
     Frames are hardlinked (copy fallback) into a temp dir as a numbered
@@ -52,7 +57,16 @@ def build_video(frames, out_path: Path, *, fps, crf, deflicker_size, max_height=
     `metadata` (e.g. {"season": "summer"}) is written as MP4 metadata tags —
     readable with `ffprobe` or exiftool, same spirit as the JPEG comment tags
     embedded on frames.
+
+    `preset` trades libx264 encode speed against compression efficiency —
+    slower presets produce a smaller file at the same crf, at the cost of
+    more CPU time. `medium` is ffmpeg's own default and this project's
+    long-standing behavior; falls back to it if given anything not in
+    X264_PRESETS rather than passing a bad value through to ffmpeg.
     """
+    if preset not in X264_PRESETS:
+        log.warning("unknown preset %r, falling back to medium", preset)
+        preset = "medium"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="timelapse_", dir=out_path.parent) as tmp:
         tmp = Path(tmp)
@@ -75,7 +89,7 @@ def build_video(frames, out_path: Path, *, fps, crf, deflicker_size, max_height=
             "-framerate", str(fps),
             "-i", str(tmp / "%06d.jpg"),
             "-vf", ",".join(filters),
-            "-c:v", "libx264", "-preset", "medium", "-crf", str(crf),
+            "-c:v", "libx264", "-preset", preset, "-crf", str(crf),
         ]
         for key, value in (metadata or {}).items():
             cmd += ["-metadata", f"{key}={value}"]
@@ -199,6 +213,7 @@ def cmd_daily(cfg, args):
             fps=d["fps"], crf=d["crf"],
             deflicker_size=d.get("deflicker_size", 0),
             max_height=d.get("max_height", 0),
+            preset=d.get("preset", "medium"),
             metadata=season,
         )
         archive_yearly_frames(cfg, cam["name"], date, frames)
@@ -412,6 +427,7 @@ def build_event_videos(cfg, date, camera=None):
                     # e.g. snow has no lightning to protect
                     deflicker_size=deflicker_by_tag.get(tag, default_deflicker),
                     max_height=cfg["daily_video"].get("max_height", 0),
+                    preset=ev.get("preset", "medium"),
                     metadata=season,
                 )
                 index.append({
@@ -447,6 +463,7 @@ def cmd_yearly(cfg, args):
             fps=y["fps"], crf=y["crf"],
             deflicker_size=y.get("deflicker_size", 0),
             max_height=cfg["daily_video"].get("max_height", 0),
+            preset=y.get("preset", "medium"),
         )
         try:
             prune_yearly_videos(cfg, cam["name"])

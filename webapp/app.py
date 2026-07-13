@@ -11,7 +11,10 @@ import os
 import re
 import shutil
 import socket
+import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 import requests
@@ -221,6 +224,48 @@ def identify_reolink_device(host, username, password, https=True, timeout=10):
                 pass
 
 
+CAPTURE_UNIT = "reolapse-capture.service"
+WEB_UNIT = "reolapse-web.service"
+
+
+def restart_capture_service():
+    """Synchronous restart of the capture service — safe to do inline since
+    we're not restarting the process handling this request.
+
+    Requires a narrowly-scoped passwordless sudo rule for exactly
+    `systemctl restart reolapse-capture.service` (see README) — nothing
+    broader. `sudo -n` fails immediately rather than hanging if that isn't
+    configured, so this degrades to a clear error instead of a stuck request.
+    """
+    if not shutil.which("systemctl"):
+        return False, ("systemctl not found — restart-from-UI only works on a systemd "
+                       "Linux host, not Docker. Run `docker compose restart` instead.")
+    try:
+        subprocess.run(["sudo", "-n", "systemctl", "restart", CAPTURE_UNIT],
+                       check=True, capture_output=True, timeout=15, text=True)
+        return True, f"{CAPTURE_UNIT} restarted"
+    except subprocess.CalledProcessError as exc:
+        return False, (f"Failed to restart {CAPTURE_UNIT}: {(exc.stderr or '').strip() or exc}. "
+                       "Passwordless sudo for this exact command may not be configured — see README.")
+    except Exception as exc:
+        return False, f"Failed to restart {CAPTURE_UNIT}: {exc}"
+
+
+def schedule_self_restart(delay=1.5):
+    """Restart the web service from a background thread, after a short delay
+    so the HTTP response for this request has time to reach the client first.
+    Nothing meaningful to report afterward either way — the process ends.
+    """
+    def _do_restart():
+        time.sleep(delay)
+        try:
+            subprocess.run(["sudo", "-n", "systemctl", "restart", WEB_UNIT],
+                           timeout=15, capture_output=True)
+        except Exception:
+            pass
+    threading.Thread(target=_do_restart, daemon=True).start()
+
+
 def create_app(cfg, config_path=None):
     app = Flask(__name__, static_folder="static")
     # Mutable so a successful config save can update what every route sees
@@ -359,6 +404,22 @@ def create_app(cfg, config_path=None):
         if "error" in result:
             return jsonify(result), 502
         return jsonify(result)
+
+    @app.post("/api/restart")
+    def restart_services():
+        ok, message = restart_capture_service()
+        if not ok:
+            return jsonify({"error": message}), 500
+        # The web service restarting itself would kill this very request if
+        # done synchronously here — deferred so this response reaches the
+        # client first. The connection will still drop a moment later; the
+        # frontend treats that as expected, not an error.
+        schedule_self_restart()
+        return jsonify({
+            "ok": True,
+            "note": f"{message}. This web service is restarting too — the page "
+                    "will disconnect for a few seconds, then reload.",
+        })
 
     @app.get("/videos/<camera>/<vtype>/<name>")
     def serve_video(camera, vtype, name):

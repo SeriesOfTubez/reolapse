@@ -101,6 +101,25 @@
 
   main { flex: 1; display: flex; min-height: 0; }
 
+  #content-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  #cfg-footer {
+    display: none;
+    flex-shrink: 0;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-5);
+    border-top: 1px solid var(--border);
+    background: var(--surface-0);
+  }
+  #cfg-footer.visible { display: flex; }
+
   #sidebar {
     width: var(--sidebar-w);
     flex-shrink: 0;
@@ -165,6 +184,7 @@
   #player-area {
     flex: 1;
     min-width: 0;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -282,7 +302,7 @@
     font-size: var(--fs-xs);
   }
 
-  #cfg-view { width: 100%; max-width: 720px; padding-bottom: 80px; }
+  #cfg-view { width: 100%; max-width: 720px; }
   .cfg-section {
     background: var(--surface-1);
     border: 1px solid var(--border);
@@ -365,16 +385,6 @@
   .cfg-btn.cfg-btn-danger { color: #e5534b; }
   .cfg-btn.cfg-btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); font-weight: var(--fw-medium); }
 
-  .cfg-save-bar {
-    position: sticky;
-    bottom: 0;
-    background: var(--surface-0);
-    border-top: 1px solid var(--border);
-    padding: var(--space-3) 0;
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-  }
   .cfg-msg { font-size: var(--fs-sm); }
   .cfg-msg.ok { color: #4caf7d; }
   .cfg-msg.error { color: #e5534b; }
@@ -399,7 +409,7 @@
       border-top: 1px solid var(--border);
       order: 2;
     }
-    #player-area { order: 1; }
+    #content-col { order: 1; }
   }
 </style>
 </head>
@@ -421,8 +431,11 @@
 <div id="warnings"></div>
 <main>
   <div id="sidebar"></div>
-  <div id="player-area">
-    <div id="empty">Loading&hellip;</div>
+  <div id="content-col">
+    <div id="player-area">
+      <div id="empty">Loading&hellip;</div>
+    </div>
+    <div id="cfg-footer"></div>
   </div>
 </main>
 <script>
@@ -461,6 +474,9 @@ function setActive(container, btn) {
 }
 
 function refresh() {
+  if (state.type !== "config") {
+    document.getElementById("cfg-footer").classList.remove("visible");
+  }
   if (state.type === "storage") renderStorage();
   else if (state.type === "config") renderConfig();
   else renderList();
@@ -739,6 +755,24 @@ function numberField(path, opts) {
   return input;
 }
 
+function selectField(path, options, opts) {
+  opts = opts || {};
+  const select = document.createElement("select");
+  const current = cfgGet(path, opts.default);
+  options.forEach(value => {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = value;
+    if (value === current) o.selected = true;
+    select.appendChild(o);
+  });
+  select.onchange = () => cfgSet(path, select.value);
+  return select;
+}
+
+const X264_PRESETS = ["ultrafast", "superfast", "veryfast", "faster", "fast",
+                      "medium", "slow", "slower", "veryslow"];
+
 function checkboxField(path, opts) {
   opts = opts || {};
   const input = document.createElement("input");
@@ -842,13 +876,22 @@ function renderConfigForm(area) {
   wrap.appendChild(buildEventsVideoSection());
   wrap.appendChild(buildWebappSection());
 
-  const saveBar = document.createElement("div");
-  saveBar.className = "cfg-save-bar";
+  area.innerHTML = "";
+  area.appendChild(wrap);
+
+  // The save/restart bar lives in #cfg-footer, a flex sibling of #player-area
+  // (not inside the scrolling content) so it's always visible at the bottom
+  // without ever overlapping content as you scroll through a long form.
+  const footer = document.getElementById("cfg-footer");
+  footer.innerHTML = "";
+  footer.classList.add("visible");
+
+  const msg = document.createElement("span");
+  msg.className = "cfg-msg";
+
   const saveBtn = document.createElement("button");
   saveBtn.className = "cfg-btn cfg-btn-primary";
   saveBtn.textContent = "Save config";
-  const msg = document.createElement("span");
-  msg.className = "cfg-msg";
   saveBtn.onclick = async () => {
     msg.className = "cfg-msg";
     msg.textContent = "Saving…";
@@ -871,12 +914,41 @@ function renderConfigForm(area) {
       msg.textContent = "Save failed: " + e;
     }
   };
-  saveBar.appendChild(saveBtn);
-  saveBar.appendChild(msg);
-  wrap.appendChild(saveBar);
 
-  area.innerHTML = "";
-  area.appendChild(wrap);
+  const restartBtn = document.createElement("button");
+  restartBtn.className = "cfg-btn";
+  restartBtn.textContent = "Restart services";
+  restartBtn.title = "Restarts reolapse-capture and reolapse-web (systemd deployments only) "
+    + "so saved changes take effect without a manual restart";
+  restartBtn.onclick = async () => {
+    if (!confirm("Restart the capture and web services now? The page will briefly disconnect.")) return;
+    restartBtn.disabled = true;
+    restartBtn.textContent = "Restarting…";
+    msg.className = "cfg-msg";
+    msg.textContent = "";
+    try {
+      const res = await fetch("/api/restart", {method: "POST"});
+      const data = await res.json();
+      if (data.error) {
+        msg.className = "cfg-msg error";
+        msg.textContent = data.error;
+      } else {
+        msg.className = "cfg-msg ok";
+        msg.textContent = data.note || "Restarting…";
+      }
+    } catch (e) {
+      // The web service restarting itself can drop this very connection -
+      // that's the expected outcome here, not a failure.
+      msg.className = "cfg-msg ok";
+      msg.textContent = "Services restarting — reload the page in a few seconds.";
+    }
+    restartBtn.disabled = false;
+    restartBtn.textContent = "Restart services";
+  };
+
+  footer.appendChild(saveBtn);
+  footer.appendChild(restartBtn);
+  footer.appendChild(msg);
 }
 
 function buildCamerasSection() {
@@ -931,15 +1003,25 @@ function renderCameraCards(list) {
     head.appendChild(rm);
     card.appendChild(head);
 
-    card.appendChild(fieldRow("Name", "letters/digits/dashes only", textField(`cameras.${i}.name`)));
-    card.appendChild(fieldRow("Host", "camera IP or NVR IP", textField(`cameras.${i}.host`)));
-    card.appendChild(fieldRow("Channel", "0 for a camera; NVR channel otherwise",
+    card.appendChild(fieldRow("Name", "Used in folder and file names for this camera's snapshots and "
+      + "videos (data/snapshots/<name>/...) — letters, digits, and dashes only, no spaces.",
+      textField(`cameras.${i}.name`)));
+    card.appendChild(fieldRow("Host", "The device ReoLapse talks to for this camera: either the camera's "
+      + "own IP (full resolution, no NVR dependency), or your NVR's IP if you'd rather pull every camera "
+      + "through one device and credential.", textField(`cameras.${i}.host`)));
+    card.appendChild(fieldRow("Channel", "0 when Host above is the camera itself. When Host is an NVR, "
+      + "this is that camera's channel number on it (check the NVR's own UI, or use Discover below).",
       numberField(`cameras.${i}.channel`, {default: 0})));
-    card.appendChild(fieldRow("Username", "", textField(`cameras.${i}.username`)));
-    card.appendChild(fieldRow("Password", "which .env variable holds this camera's password — add the real value there, never here",
-      passwordField(`cameras.${i}.password`), true));
-    card.appendChild(fieldRow("HTTPS", "", checkboxField(`cameras.${i}.https`, {default: true})));
-    card.appendChild(fieldRow("Verify SSL cert", "leave off — Reolink certs are self-signed",
+    card.appendChild(fieldRow("Username", "The login name for this camera/NVR account. A dedicated, "
+      + "least-privilege account is safer than reusing your admin login.", textField(`cameras.${i}.username`)));
+    card.appendChild(fieldRow("Password", "Which .env variable holds this camera's password. Add the real "
+      + "value there — never here. Different cameras can use different variables if they don't share an "
+      + "account.", passwordField(`cameras.${i}.password`), true));
+    card.appendChild(fieldRow("HTTPS", "Talk to this device over HTTPS instead of plain HTTP. Current "
+      + "Reolink firmware generally requires it.", checkboxField(`cameras.${i}.https`, {default: true})));
+    card.appendChild(fieldRow("Verify SSL cert", "Checks the device's TLS certificate against trusted "
+      + "authorities before trusting it. Leave this off — Reolink devices ship self-signed certificates, "
+      + "which would otherwise always fail this check.",
       checkboxField(`cameras.${i}.verify_ssl`, {default: false})));
 
     if (cam.ptz_home) {
@@ -1100,17 +1182,25 @@ function buildCaptureSection() {
   const sec = document.createElement("div");
   sec.className = "cfg-section";
   sec.innerHTML = `<h3>Capture</h3>`;
-  sec.appendChild(fieldRow("Interval (seconds)", "how often to grab a snapshot",
+  sec.appendChild(fieldRow("Interval (seconds)", "How often each camera grabs a snapshot. This is the biggest "
+    + "lever on both video smoothness and disk use — 60s (one frame/minute) gives a ~48s daily video at 30fps; "
+    + "halving it doubles frame count, storage, and video length alike.",
     numberField("capture.interval_seconds", {default: 60})));
   sec.appendChild(fieldRow("Auto daylight window",
-    "capture only around real sunrise/sunset instead of a fixed clock window; overrides start/end time below",
+    "Instead of a fixed clock window, computes actual sunrise/sunset for your location each day and captures "
+    + "only within it (plus the buffer below). Useful for cameras that switch to IR/black-and-white at night — "
+    + "this keeps those frames out of the timelapse. Overrides Start/End time below when on; needs a location "
+    + "(ZIP or lat/lon) set in Weather & astronomy tagging.",
     checkboxField("capture.daylight_window.enabled", {default: false})));
   sec.appendChild(fieldRow("Daylight buffer (minutes)",
-    "start/stop this many minutes before sunrise / after sunset",
+    "Widens the auto daylight window by this many minutes on each side — starts capturing this long before "
+    + "sunrise, stops this long after sunset. Only matters when Auto daylight window above is on.",
     numberField("capture.daylight_window.buffer_minutes", {default: 0})));
-  sec.appendChild(fieldRow("Start time (HH:MM)", "ignored if auto daylight window is on; empty = all day",
+  sec.appendChild(fieldRow("Start time (HH:MM)", "Fixed daily start time for capture, e.g. \"05:30\". Empty "
+    + "means capture all day. Ignored whenever Auto daylight window above is on.",
     textField("capture.start_time", {placeholder: "05:30"})));
-  sec.appendChild(fieldRow("End time (HH:MM)", "ignored if auto daylight window is on",
+  sec.appendChild(fieldRow("End time (HH:MM)", "Fixed daily stop time for capture, e.g. \"21:30\". Ignored "
+    + "whenever Auto daylight window above is on.",
     textField("capture.end_time", {placeholder: "21:30"})));
   return sec;
 }
@@ -1120,7 +1210,9 @@ function buildStorageSection() {
   sec.className = "cfg-section";
   sec.innerHTML = `<h3>Storage</h3>`;
   sec.appendChild(fieldRow("Keep snapshots (days)",
-    "0 = forever; raw frames are pruned after their daily video builds",
+    "How long to keep a day's raw snapshot images after its daily video has been built. Once a day's video "
+    + "exists, its source frames are just disk space — this prunes them after the given number of days so "
+    + "storage doesn't grow forever. 0 keeps every snapshot indefinitely.",
     numberField("storage.keep_snapshots_days", {default: 4})));
   return sec;
 }
@@ -1129,14 +1221,35 @@ function buildDailyVideoSection() {
   const sec = document.createElement("div");
   sec.className = "cfg-section";
   sec.innerHTML = `<h3>Daily video</h3>`;
-  sec.appendChild(fieldRow("Frame rate (fps)", "", numberField("daily_video.fps", {default: 30})));
-  sec.appendChild(fieldRow("Quality (CRF)", "lower = better quality, bigger file (18-23 typical)",
+  sec.appendChild(fieldRow("Frame rate (fps)", "Playback speed of the rendered video, in frames per second. "
+    + "Doesn't change how many snapshots are captured — just how quickly they play back. Higher fps means a "
+    + "shorter, faster-paced video from the same day's frames.",
+    numberField("daily_video.fps", {default: 30})));
+  sec.appendChild(fieldRow("Quality (CRF)", "x264's Constant Rate Factor — the main video quality/file-size "
+    + "knob, roughly logarithmic: lower numbers mean higher quality and bigger files, higher numbers mean more "
+    + "compression artifacts and smaller files. There's no fixed unit; each step up or down roughly halves or "
+    + "doubles the file size. 18-23 is the commonly recommended \"visually lossless to very good\" range for "
+    + "x264 — 18 looks close to the source but costs more disk, 23 is noticeably more compressed but much "
+    + "smaller. This project defaults to 20 as a middle ground.",
     numberField("daily_video.crf", {default: 20})));
-  sec.appendChild(fieldRow("Deflicker window", "frames averaged to smooth exposure flicker; 0 disables",
+  sec.appendChild(fieldRow("Encode preset", "x264's speed-vs-compression tradeoff during encoding. Slower "
+    + "presets (toward veryslow) spend more CPU time finding a smaller file at the same Quality (CRF) above; "
+    + "faster presets (toward ultrafast) encode quicker but produce a larger file for the same quality. This "
+    + "only affects encode time and file size — not the frame rate or resolution of the result. \"medium\" is "
+    + "ffmpeg's own default and a reasonable starting point.",
+    selectField("daily_video.preset", X264_PRESETS, {default: "medium"})));
+  sec.appendChild(fieldRow("Deflicker window", "Number of neighboring frames averaged together to smooth out "
+    + "brightness flicker between snapshots (common with auto-exposure cameras, especially at dawn/dusk or in "
+    + "changing cloud cover). Larger windows smooth more but can blur fast lighting changes; 0 disables "
+    + "deflickering entirely.",
     numberField("daily_video.deflicker_size", {default: 10})));
-  sec.appendChild(fieldRow("Max height (px)", "downscale taller video; 0 = original resolution",
+  sec.appendChild(fieldRow("Max height (px)", "Downscales the video if the source snapshots are taller than "
+    + "this, preserving aspect ratio — reduces file size and encode time for high-resolution cameras. 0 keeps "
+    + "the original snapshot resolution untouched.",
     numberField("daily_video.max_height", {default: 0})));
-  sec.appendChild(fieldRow("Retention (days)", "0 = keep forever",
+  sec.appendChild(fieldRow("Retention (days)", "Deletes a camera's daily video this many days after its date. "
+    + "Unlike snapshots, a pruned daily video can't be rebuilt later — by the time it's pruned, its source "
+    + "frames are normally already gone too (see Keep snapshots above). 0 keeps every daily video forever.",
     numberField("daily_video.retention_days", {default: 0})));
   return sec;
 }
@@ -1145,17 +1258,34 @@ function buildYearlySection() {
   const sec = document.createElement("div");
   sec.className = "cfg-section";
   sec.innerHTML = `<h3>Yearly video</h3>`;
-  sec.appendChild(fieldRow("Archive frames/day", "kept forever — the pool the yearly video is rendered from",
+  sec.appendChild(fieldRow("Archive frames/day", "How many frames per day get pulled aside into a permanent "
+    + "archive (separate from the daily snapshots, which get pruned per Storage above). This archive is the "
+    + "pool the yearly video is selected from, and is never automatically deleted — archive more than you plan "
+    + "to render so you can re-tune Video frames/day below later without losing options.",
     numberField("yearly.archive_frames_per_day", {default: 24})));
-  sec.appendChild(fieldRow("Video frames/day", "how many of the archived frames make it into the rendered video",
+  sec.appendChild(fieldRow("Video frames/day", "How many of each day's archived frames actually get used in "
+    + "the rendered yearly video — must be less than or equal to Archive frames/day above. E.g. 10/day for a "
+    + "365-day year at 30fps renders to about a 2-minute video.",
     numberField("yearly.video_frames_per_day", {default: 10})));
-  sec.appendChild(fieldRow("Daylight window", "HH:MM-HH:MM; empty = whole day",
+  sec.appendChild(fieldRow("Daylight window", "Restricts which hours of the day are eligible for the yearly "
+    + "video, as \"HH:MM-HH:MM\" (e.g. \"08:00-16:30\"), so it doesn't pull dark or IR night frames year-round. "
+    + "Empty uses the whole day.",
     textField("yearly.video_window", {placeholder: "08:00-16:30"})));
-  sec.appendChild(fieldRow("Frame rate (fps)", "", numberField("yearly.fps", {default: 30})));
-  sec.appendChild(fieldRow("Quality (CRF)", "", numberField("yearly.crf", {default: 20})));
-  sec.appendChild(fieldRow("Deflicker window", "", numberField("yearly.deflicker_size", {default: 15})));
+  sec.appendChild(fieldRow("Frame rate (fps)", "Playback speed of the rendered yearly video, in frames per "
+    + "second — same idea as Daily video's Frame rate above.", numberField("yearly.fps", {default: 30})));
+  sec.appendChild(fieldRow("Quality (CRF)", "x264 quality for the yearly video — same scale as Daily video's "
+    + "Quality (CRF) above: lower is higher quality and bigger file, higher is more compressed and smaller.",
+    numberField("yearly.crf", {default: 20})));
+  sec.appendChild(fieldRow("Encode preset", "x264 encode speed vs. compression for the yearly video — same "
+    + "tradeoff as Daily video's Encode preset above.",
+    selectField("yearly.preset", X264_PRESETS, {default: "medium"})));
+  sec.appendChild(fieldRow("Deflicker window", "Frames averaged to smooth exposure flicker in the yearly "
+    + "video — same idea as Daily video's Deflicker window above, just wider by default since exposure varies "
+    + "more day-to-day than minute-to-minute.", numberField("yearly.deflicker_size", {default: 15})));
   sec.appendChild(fieldRow("Retention (years)",
-    "0 = keep forever; only deletes the rendered video, never the frame archive",
+    "Deletes a camera's rendered yearly video once it's older than this many years. The archived frames it "
+    + "was built from (see Archive frames/day above) are never deleted by this, so a pruned yearly video can "
+    + "always be regenerated later — safe to set low. 0 keeps every yearly video forever.",
     numberField("yearly.retention_years", {default: 0})));
   return sec;
 }
@@ -1165,11 +1295,19 @@ function buildEventsSection() {
   sec.className = "cfg-section";
   sec.innerHTML = `<h3>Weather &amp; astronomy tagging</h3>`;
 
-  sec.appendChild(fieldRow("Storm/snow/rain tagging", "needs a location below",
+  sec.appendChild(fieldRow("Storm/snow/rain tagging", "Polls NWS alerts (US only) and Open-Meteo for active "
+    + "storm/snow/rain conditions, tags matching frames, and can switch capture to the faster Burst interval "
+    + "below while a Burst tag is active. Requires a location (ZIP or lat/lon, set below) — if left on without "
+    + "one, this tagging is silently skipped and a warning is logged.",
     checkboxField("events.weather_enabled", {default: false})));
-  sec.appendChild(fieldRow("Moon event tagging", "blood moon, full/blue/harvest moon — no location required",
+  sec.appendChild(fieldRow("Moon event tagging", "Computes real moon events locally (via Skyfield): full, "
+    + "blue, and harvest moon, plus blood moon (total lunar eclipse) and partial lunar eclipse. No location "
+    + "required — moon phase is the same instant everywhere on Earth; a location is only used to skip tagging "
+    + "an eclipse when the Moon isn't actually above your horizon. First use downloads a ~17 MB ephemeris file.",
     checkboxField("events.lunar_enabled", {default: false})));
-  sec.appendChild(fieldRow("Season tagging", "spring/summer/fall/winter — no location required",
+  sec.appendChild(fieldRow("Season tagging", "Tags every frame and video with the current astronomical season "
+    + "(spring/summer/fall/winter). No location required — defaults to Northern Hemisphere; set a location "
+    + "below to get correct seasons south of the equator.",
     checkboxField("events.season_enabled", {default: false})));
 
   const hasLatLon = cfgGet("events.latitude", null) != null;
@@ -1198,10 +1336,14 @@ function buildEventsSection() {
   modeRow.appendChild(radioGroup);
   sec.appendChild(modeRow);
 
-  const zipRow = fieldRow("ZIP code", "resolved via zippopotam.us, free/no key",
+  const zipRow = fieldRow("ZIP code", "US ZIP code, resolved to latitude/longitude via zippopotam.us (free, "
+    + "no API key). Used by Storm/snow/rain tagging (required), and optionally by Moon event and Season "
+    + "tagging above and Auto daylight window in Capture.",
     textField("events.zip", {placeholder: "12345"}));
-  const latRow = fieldRow("Latitude", "", numberField("events.latitude", {step: "0.0001"}));
-  const lonRow = fieldRow("Longitude", "", numberField("events.longitude", {step: "0.0001"}));
+  const latRow = fieldRow("Latitude", "Decimal degrees (e.g. 38.7906). Use this instead of ZIP code if you're "
+    + "outside the US, or want to skip the ZIP lookup.", numberField("events.latitude", {step: "0.0001"}));
+  const lonRow = fieldRow("Longitude", "Decimal degrees (e.g. -89.8339). Paired with Latitude above.",
+    numberField("events.longitude", {step: "0.0001"}));
   zipRow.style.display = hasLatLon ? "none" : "flex";
   latRow.style.display = hasLatLon ? "flex" : "none";
   lonRow.style.display = hasLatLon ? "flex" : "none";
@@ -1221,11 +1363,16 @@ function buildEventsSection() {
     cfgSet("events.zip", null);
   };
 
-  sec.appendChild(fieldRow("Poll interval (minutes)", "",
+  sec.appendChild(fieldRow("Poll interval (minutes)", "How often to check NWS alerts and Open-Meteo for "
+    + "current weather conditions. Only relevant when Storm/snow/rain tagging above is on.",
     numberField("events.poll_minutes", {default: 5})));
-  sec.appendChild(fieldRow("Burst interval (seconds)", "capture cadence while a burst tag is active",
+  sec.appendChild(fieldRow("Burst interval (seconds)", "Capture interval used instead of the normal "
+    + "Capture > Interval (seconds) while any tag below is active — pick a value that evenly divides the "
+    + "normal interval so timing stays predictable, e.g. 10s bursts within a 60s normal interval.",
     numberField("events.burst_interval_seconds", {default: 10})));
-  sec.appendChild(fieldRow("Burst tags", "which tags switch capture to the burst interval",
+  sec.appendChild(fieldRow("Burst tags", "Which active tags switch capture to the faster Burst interval above "
+    + "— e.g. capture more frequently during an actual storm so the event clip (see Event video clips below) "
+    + "has enough footage.",
     tagCheckGroup("events.burst_tags", ["storm", "snow", "rain"]), true));
 
   return sec;
@@ -1235,16 +1382,31 @@ function buildEventsVideoSection() {
   const sec = document.createElement("div");
   sec.className = "cfg-section";
   sec.innerHTML = `<h3>Event video clips</h3>`;
-  sec.appendChild(fieldRow("Tags that get their own clip", "any active tag works, including moon/season",
+  sec.appendChild(fieldRow("Tags that get their own clip", "Each night, any contiguous span of frames sharing "
+    + "one of these active tags gets rendered into its own short clip (separate from the daily/yearly videos) "
+    + "— e.g. a dedicated video for each storm. Any tag works here, including moon phases and seasons, not "
+    + "just weather.",
     tagCheckGroup("events_video.tags", EVENT_TAGS), true));
-  sec.appendChild(fieldRow("Minimum frames", "skip clips shorter than this",
+  sec.appendChild(fieldRow("Minimum frames", "Skips rendering a clip for a tagged span shorter than this many "
+    + "frames — filters out brief blips (e.g. a storm alert that clears in a couple of minutes) that wouldn't "
+    + "make a meaningful clip.",
     numberField("events_video.min_frames", {default: 30})));
-  sec.appendChild(fieldRow("Frame rate (fps)", "", numberField("events_video.fps", {default: 30})));
-  sec.appendChild(fieldRow("Quality (CRF)", "", numberField("events_video.crf", {default: 20})));
+  sec.appendChild(fieldRow("Frame rate (fps)", "Playback speed of event clips, in frames per second — same "
+    + "idea as Daily video's Frame rate.", numberField("events_video.fps", {default: 30})));
+  sec.appendChild(fieldRow("Quality (CRF)", "x264 quality for event clips — same scale as Daily video's "
+    + "Quality (CRF): lower is higher quality and bigger file, higher is more compressed and smaller.",
+    numberField("events_video.crf", {default: 20})));
+  sec.appendChild(fieldRow("Encode preset", "x264 encode speed vs. compression for event clips — same "
+    + "tradeoff as Daily video's Encode preset.",
+    selectField("events_video.preset", X264_PRESETS, {default: "medium"})));
   sec.appendChild(fieldRow("Deflicker window",
-    "0 = off (protects lightning in storm clips). Per-tag overrides aren't editable here — set deflicker_by_tag in config.yaml directly.",
+    "Frames averaged to smooth exposure flicker in event clips. Defaults to 0 (off) here specifically because "
+    + "deflickering would smooth away lightning flashes in storm clips — turning it on for a tag without that "
+    + "concern (e.g. snow) can look better. Per-tag overrides aren't editable in this UI — set "
+    + "events_video.deflicker_by_tag directly in config.yaml.",
     numberField("events_video.deflicker_size", {default: 0})));
-  sec.appendChild(fieldRow("Retention (days)", "0 = keep forever",
+  sec.appendChild(fieldRow("Retention (days)", "Deletes an event clip this many days after the date in its "
+    + "filename. 0 keeps every event clip forever.",
     numberField("events_video.retention_days", {default: 0})));
   return sec;
 }
@@ -1253,9 +1415,12 @@ function buildWebappSection() {
   const sec = document.createElement("div");
   sec.className = "cfg-section";
   sec.innerHTML = `<h3>Web UI</h3>`;
-  sec.appendChild(fieldRow("Host", "0.0.0.0 to listen on all interfaces",
+  sec.appendChild(fieldRow("Host", "Network interface this web UI listens on. 0.0.0.0 listens on every "
+    + "interface, making it reachable from other devices on your network — use 127.0.0.1 to restrict it to "
+    + "this machine only. Takes effect on restart (see Restart services below).",
     textField("webapp.host", {default: "0.0.0.0"})));
-  sec.appendChild(fieldRow("Port", "", numberField("webapp.port", {default: 8080})));
+  sec.appendChild(fieldRow("Port", "TCP port this web UI listens on. Takes effect on restart (see Restart "
+    + "services below).", numberField("webapp.port", {default: 8080})));
 
   const colorRow = document.createElement("div");
   colorRow.className = "cfg-row cfg-row-col";
