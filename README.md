@@ -21,9 +21,10 @@ deflickered **daily** video per camera, archives frames into an ever-growing
 captures faster and cuts a dedicated **event** clip. Everything is browsable
 through a bundled single-page web app.
 
-> **Two things to know before you run this:** the web UI has no login (see
-> [Security](#security) — this is a LAN tool, don't expose it to the
-> internet), and this project was built with AI assistance (see
+> **Two things to know before you run this:** the web UI has no login by
+> default — video browsing is always open, and the Config page has an
+> optional passcode (see [Security](#security) — this is a LAN tool, don't
+> expose it to the internet), and this project was built with AI assistance (see
 > [AI-assisted development](#ai-assisted-development) for what that means and
 > what's checked before anything ships).
 
@@ -259,6 +260,14 @@ dropdown, radio, or text field.
   not text, so saving from the UI strips out `config.yaml`'s hand-written
   comments. A backup of the previous file is written to `config.yaml.bak`
   before every save.
+- **Config page access (optional passcode).** The **Config page access**
+  section at the bottom of the page lets you set a single passcode that gates
+  this page and its write/scan endpoints — video browsing stays open. Setting
+  the first passcode is allowed from the open page (it logs you straight in);
+  changing or removing it afterward requires being logged in. See
+  [Security](#security) for how it's stored and what it does and doesn't
+  protect. Setting or changing the passcode also rewrites `config.yaml` (same
+  `.bak` backup, same comment-stripping caveat as above).
 - **Network discovery** (inside the Cameras section) scans your `/24` for
   Reolink devices and lists the ones it finds. An unauthenticated probe can
   only confirm a device is there, not what it is — click **Identify & add**
@@ -487,14 +496,32 @@ decision. The sunrise/sunset approach above doesn't have that problem.
   you.
 - **The Config page can write `config.yaml` and scan your network — the
   no-auth warning above applies doubly to it.** Anyone who can reach the app
-  can reconfigure your cameras or trigger a network scan; the LAN-only
-  posture is what protects this, not anything in the app itself. The write
-  endpoint does reject literal passwords (only `${VAR}` references are
-  accepted) and validates structure before touching the file, and its
+  can reconfigure your cameras or trigger a network scan; on an open install
+  the LAN-only posture is what protects this, not anything in the app itself.
+  The write endpoint does reject literal passwords (only `${VAR}` references
+  are accepted) and validates structure before touching the file, and its
   `Content-Type: application/json` requirement means a plain cross-origin
   `<form>` POST from some other site can't trigger it — but a malicious page
   making a same-network JSON `fetch()` still could, same as it could hit any
   other unauthenticated route here.
+- **Optional Config-page passcode.** You can put a single passcode (no
+  username) in front of the Config page and its write/scan endpoints
+  (`/api/config`, `/api/discover`, `/api/discover/identify`, `/api/restart`)
+  while video browsing stays open for casual LAN viewing. It's **opt-in**:
+  set it from the Config page itself under **Config page access** (or remove
+  it there later). Details:
+  - The passcode is stored only as a **salted scrypt hash** in `config.yaml`
+    (`webapp.config_passcode_hash`) — never in the clear, and never sent to
+    the browser. A hash is safe to keep there because, unlike a camera
+    password, it never needs to be reversed.
+  - A successful login sets an `HttpOnly`, `SameSite=Lax` session cookie
+    (server-side token, 12-hour expiry). `SameSite=Lax` keeps the cookie off
+    cross-site POST/`fetch`, so a malicious off-origin page can't ride your
+    session to the write endpoints. Restarting the web service or changing
+    the passcode logs every session out.
+  - There's a modest failed-login throttle. This is a convenience gate for a
+    trusted LAN, **not** a substitute for the VPN/reverse-proxy guidance
+    above — the cookie rides over plain HTTP since ReoLapse serves no TLS.
 - Credentials live in `.env` (gitignored), never in `config.yaml`.
 - Prefer a **dedicated, least-privilege** camera/NVR account for ReoLapse. The
   Snap API passes credentials as URL parameters, so avoid `&`, `#`, `%` in that

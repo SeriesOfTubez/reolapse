@@ -323,7 +323,7 @@
   }
   .cfg-row {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
     gap: var(--space-4);
     padding: var(--space-2) 0;
@@ -331,7 +331,7 @@
   }
   .cfg-row:last-child { border-bottom: none; }
   .cfg-row.cfg-row-col { flex-direction: column; align-items: stretch; gap: var(--space-1); }
-  .cfg-label { font-size: var(--fs-sm); color: var(--text-1); flex-shrink: 0; }
+  .cfg-label { font-size: var(--fs-sm); color: var(--text-1); flex: 1 1 auto; min-width: 0; }
   .cfg-hint { display: block; color: var(--text-3); font-size: var(--fs-xs); margin-top: 2px; }
   .cfg-row input[type="text"],
   .cfg-row input[type="number"],
@@ -344,7 +344,9 @@
     padding: var(--space-1) var(--space-2);
     width: 200px;
     max-width: 50%;
+    flex-shrink: 0;
   }
+  .cfg-row input[type="checkbox"] { flex-shrink: 0; margin-top: 2px; }
   .cfg-row.cfg-row-col input[type="text"],
   .cfg-row.cfg-row-col select { width: 100%; max-width: 100%; }
   .cfg-row input:focus, .cfg-row select:focus { outline: 1px solid var(--accent); }
@@ -388,6 +390,19 @@
   .cfg-msg { font-size: var(--fs-sm); }
   .cfg-msg.ok { color: #4caf7d; }
   .cfg-msg.error { color: #e5534b; }
+
+  .cfg-login-row { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; margin-bottom: var(--space-2); }
+  .cfg-login-row input[type="password"] {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-1);
+    font: var(--fw-regular) var(--fs-sm)/1 var(--font-sans);
+    padding: var(--space-1) var(--space-2);
+    width: 200px;
+  }
+  .cfg-login-row input[type="password"]:focus { outline: 1px solid var(--accent); }
+  .cfg-section.cfg-login { max-width: 520px; }
 
   .cfg-discover-list { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-2); }
   .cfg-discover-item {
@@ -689,8 +704,22 @@ async function renderConfig() {
   document.getElementById("sidebar").innerHTML = "";
   const area = document.getElementById("player-area");
   area.innerHTML = `<div id="empty">Loading configuration&hellip;</div>`;
+  document.getElementById("cfg-footer").classList.remove("visible");
+
+  // Is a passcode gate in front of the Config API? (Opt-in; if no passcode is
+  // set the whole app stays open and this just reports enabled:false.)
+  let auth = {enabled: false, authed: true};
+  try { auth = await (await fetch("/api/auth")).json(); } catch (e) {}
+  state.authEnabled = !!auth.enabled;
+  state.authed = !!auth.authed;
+  if (state.authEnabled && !state.authed) { renderLogin(area); return; }
 
   const res = await fetch("/api/config");
+  if (res.status === 401) {   // session expired between the two calls
+    state.authed = false;
+    renderLogin(area);
+    return;
+  }
   const data = await res.json();
   if (data.error) {
     area.innerHTML = `<div id="empty">${data.error}</div>`;
@@ -700,6 +729,65 @@ async function renderConfig() {
   state.accentColors = data.accent_colors || Object.keys(ACCENT_HEX);
   state.passwordVars = data.password_vars || [];
   renderConfigForm(area);
+}
+
+// Passcode gate shown when the Config API is locked. Keeps the save/restart
+// footer hidden — nothing to save until you're in.
+function renderLogin(area) {
+  document.getElementById("cfg-footer").classList.remove("visible");
+  const wrap = document.createElement("div");
+  wrap.id = "cfg-view";
+  const card = document.createElement("div");
+  card.className = "cfg-section cfg-login";
+  card.innerHTML = `<h3>Config page locked</h3>
+    <div class="cfg-hint-block">This page can edit <code>config.yaml</code> and
+    scan your network, so it's protected by a passcode. Video browsing stays
+    open — only the Config tab is gated.</div>`;
+
+  const row = document.createElement("div");
+  row.className = "cfg-login-row";
+  const input = document.createElement("input");
+  input.type = "password";
+  input.placeholder = "Passcode";
+  input.autofocus = true;
+  const btn = document.createElement("button");
+  btn.className = "cfg-btn cfg-btn-primary";
+  btn.textContent = "Unlock";
+  const msg = document.createElement("div");
+  msg.className = "cfg-msg";
+
+  const submit = async () => {
+    msg.className = "cfg-msg";
+    msg.textContent = "Checking…";
+    btn.disabled = true;
+    try {
+      const res = await fetch("/api/auth", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({passcode: input.value}),
+      });
+      const data = await res.json();
+      if (res.ok) { renderConfig(); return; }
+      msg.className = "cfg-msg error";
+      msg.textContent = data.error || "Incorrect passcode.";
+    } catch (e) {
+      msg.className = "cfg-msg error";
+      msg.textContent = "Login failed: " + e;
+    }
+    btn.disabled = false;
+    input.select();
+  };
+  btn.onclick = submit;
+  input.addEventListener("keydown", e => { if (e.key === "Enter") submit(); });
+
+  row.appendChild(input);
+  row.appendChild(btn);
+  card.appendChild(row);
+  card.appendChild(msg);
+  wrap.appendChild(card);
+  area.innerHTML = "";
+  area.appendChild(wrap);
+  input.focus();
 }
 
 function cfgGet(path, dflt) {
@@ -875,6 +963,7 @@ function renderConfigForm(area) {
   wrap.appendChild(buildEventsSection());
   wrap.appendChild(buildEventsVideoSection());
   wrap.appendChild(buildWebappSection());
+  wrap.appendChild(buildSecuritySection());
 
   area.innerHTML = "";
   area.appendChild(wrap);
@@ -949,6 +1038,93 @@ function renderConfigForm(area) {
   footer.appendChild(saveBtn);
   footer.appendChild(restartBtn);
   footer.appendChild(msg);
+}
+
+function buildSecuritySection() {
+  const sec = document.createElement("div");
+  sec.className = "cfg-section";
+  const enabled = state.authEnabled;
+  sec.innerHTML = `<h3>Config page access</h3>
+    <div class="cfg-hint-block">${enabled
+      ? "A passcode is protecting this page and its network-scan / config-write "
+        + "endpoints. Video browsing stays open to anyone on the LAN."
+      : "This page can rewrite <code>config.yaml</code> and scan your network, "
+        + "but is currently <strong>open to anyone on the LAN</strong>. Set a "
+        + "passcode to gate it (video browsing stays open either way)."}
+    The passcode is stored only as a salted hash in <code>config.yaml</code> —
+    the value you type is never saved anywhere in the clear.</div>`;
+
+  const msg = document.createElement("div");
+  msg.className = "cfg-msg";
+
+  const pwInput = document.createElement("input");
+  pwInput.type = "password";
+  pwInput.placeholder = enabled ? "New passcode" : "Passcode (min 4 chars)";
+  pwInput.style.maxWidth = "220px";
+
+  const post = async (payload, confirmText) => {
+    if (confirmText && !confirm(confirmText)) return;
+    msg.className = "cfg-msg";
+    msg.textContent = "Working…";
+    try {
+      const res = await fetch("/api/auth/passcode", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        msg.className = "cfg-msg error";
+        msg.textContent = data.error || "Failed.";
+        return;
+      }
+      renderConfig();   // reflect the new locked/open state
+    } catch (e) {
+      msg.className = "cfg-msg error";
+      msg.textContent = "Failed: " + e;
+    }
+  };
+
+  const setBtn = document.createElement("button");
+  setBtn.className = "cfg-btn cfg-btn-primary";
+  setBtn.textContent = enabled ? "Change passcode" : "Set passcode";
+  setBtn.onclick = () => {
+    if (!pwInput.value || pwInput.value.length < 4) {
+      msg.className = "cfg-msg error";
+      msg.textContent = "Passcode must be at least 4 characters.";
+      return;
+    }
+    post({passcode: pwInput.value},
+         enabled ? "Change the passcode? All current sessions will be logged out." : null);
+  };
+
+  const row = document.createElement("div");
+  row.className = "cfg-login-row";
+  row.appendChild(pwInput);
+  row.appendChild(setBtn);
+
+  if (enabled) {
+    const lockBtn = document.createElement("button");
+    lockBtn.className = "cfg-btn";
+    lockBtn.textContent = "Lock now";
+    lockBtn.title = "Log out this browser; you'll need the passcode again to reopen Config.";
+    lockBtn.onclick = async () => {
+      try { await fetch("/api/auth/logout", {method: "POST"}); } catch (e) {}
+      renderConfig();
+    };
+    const removeBtn = document.createElement("button");
+    removeBtn.className = "cfg-btn cfg-btn-danger";
+    removeBtn.textContent = "Remove passcode";
+    removeBtn.title = "Disable the gate — the Config page becomes open to anyone on the LAN.";
+    removeBtn.onclick = () => post({clear: true},
+      "Remove the passcode? The Config page will be open to anyone on the LAN.");
+    row.appendChild(lockBtn);
+    row.appendChild(removeBtn);
+  }
+
+  sec.appendChild(row);
+  sec.appendChild(msg);
+  return sec;
 }
 
 function buildCamerasSection() {

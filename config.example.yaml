@@ -167,3 +167,8 @@ webapp:
   host: 0.0.0.0
   port: 8080
   accent_color: amber         # amber (default) / green / blue / red / purple / yellow
+  # Optional passcode gate for the Config page (video browsing stays open).
+  # Don't set this by hand — use the "Config page access" section on the
+  # Config page, which stores a salted scrypt hash here as:
+  #   config_passcode_hash: "scrypt$...$...$..."
+  # Leave it out (or remove it from the Config page) to keep the app fully open.
