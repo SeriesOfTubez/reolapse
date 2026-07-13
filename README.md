@@ -72,7 +72,9 @@ through a bundled single-page web app.
   retention option if you'd rather bound disk usage.
 - **Runs anywhere.** A Linux VM with systemd units, or Docker Compose.
 - **Secrets stay out of the repo.** Credentials live in `.env`, referenced from
-  config as `${VAR}`.
+  config as `${VAR}`. Multiple cameras/NVRs with different accounts just get
+  multiple `REOLINK_PASSWORD_*` variables — the Config page's password field
+  lists whichever ones you've defined.
 
 ## Supported hardware
 
@@ -222,10 +224,14 @@ The **Config** tab edits `config.yaml` from the browser instead of by hand —
 every setting above except secrets (see below) is exposed as a checkbox,
 dropdown, radio, or text field.
 
-- **Passwords are always read-only in the UI.** You'll see the `${VAR_NAME}`
-  placeholder, never a real value, and the save endpoint rejects anything
-  that isn't an env-var reference — a literal password typed into the form
-  can't end up in `config.yaml`.
+- **Passwords are always a variable reference, never a real value, in the
+  UI.** Each camera's password field is a dropdown of `REOLINK_PASSWORD*`
+  variables this server has loaded from `.env` (names only — the actual
+  values never reach the browser); pick one, or choose "Custom" to reference
+  a variable you haven't added to `.env` yet. The save endpoint independently
+  rejects anything that isn't a `${VAR}` reference, so a literal password
+  typed into the form can't end up in `config.yaml` even if the UI is
+  bypassed.
 - **Fields the UI doesn't have a control for are preserved as-is.** The page
   edits the config it fetched in place rather than rebuilding it from
   scratch, so things like a camera's `ptz_home` block or

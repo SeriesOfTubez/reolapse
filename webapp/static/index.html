@@ -168,10 +168,18 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
+    /* flex-start, not center: with overflow-y:auto, justify-content:center
+       pushes overflowing content's start edge out of scroll range - tall
+       views (Config, Storage) would have their top clipped and unreachable
+       by scrolling. Content shorter than the viewport (the video player) is
+       centered instead via margin:auto on .video-wrap below, which doesn't
+       have that bug. */
+    justify-content: flex-start;
     padding: var(--space-5);
     overflow-y: auto;
   }
+  .video-wrap { margin: auto 0; display: flex; flex-direction: column; align-items: center; }
+  #empty { margin: auto; }
   video {
     max-width: 100%;
     max-height: calc(100% - 60px);
@@ -547,13 +555,15 @@ function play(v, itemEl) {
   if (itemEl) itemEl.classList.add("active");
   const area = document.getElementById("player-area");
   area.innerHTML = `
-    <video controls autoplay muted src="${v.url}"></video>
-    <div id="controls">
-      <span class="label">${v.camera} &middot; ${v.label}</span>
-      <span class="label">Speed:</span>
-      ${[0.5, 1, 2, 4].map(s =>
-        `<button class="speed${s === 1 ? " active" : ""}" data-speed="${s}">${s}&times;</button>`).join("")}
-      <a class="dl" href="${v.url}" download>download</a>
+    <div class="video-wrap">
+      <video controls autoplay muted src="${v.url}"></video>
+      <div id="controls">
+        <span class="label">${v.camera} &middot; ${v.label}</span>
+        <span class="label">Speed:</span>
+        ${[0.5, 1, 2, 4].map(s =>
+          `<button class="speed${s === 1 ? " active" : ""}" data-speed="${s}">${s}&times;</button>`).join("")}
+        <a class="dl" href="${v.url}" download>download</a>
+      </div>
     </div>`;
   area.querySelectorAll(".speed").forEach(b => {
     b.onclick = () => {
@@ -672,6 +682,7 @@ async function renderConfig() {
   }
   state.configData = data.config;
   state.accentColors = data.accent_colors || Object.keys(ACCENT_HEX);
+  state.passwordVars = data.password_vars || [];
   renderConfigForm(area);
 }
 
@@ -735,6 +746,66 @@ function checkboxField(path, opts) {
   input.checked = !!cfgGet(path, !!opts.default);
   input.onchange = () => cfgSet(path, input.checked);
   return input;
+}
+
+function extractVarName(value) {
+  const m = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/.exec(value || "");
+  return m ? m[1] : null;
+}
+
+function passwordField(path) {
+  // Never shows or accepts a literal secret - only ${VAR_NAME} references.
+  // The dropdown lists REOLINK_PASSWORD* variables this server already has
+  // loaded from .env (names only; the actual values never reach the
+  // browser). "Custom" covers a variable you haven't added to .env yet.
+  const wrap = document.createElement("div");
+  wrap.style.display = "flex";
+  wrap.style.flexDirection = "column";
+  wrap.style.gap = "4px";
+  wrap.style.width = "100%";
+
+  const current = cfgGet(path, "");
+  const currentVar = extractVarName(current);
+  const known = [...(state.passwordVars || [])];
+  if (currentVar && !known.includes(currentVar)) known.push(currentVar);
+
+  const select = document.createElement("select");
+  known.forEach(name => {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = "${" + name + "}";
+    if (name === currentVar) opt.selected = true;
+    select.appendChild(opt);
+  });
+  const customOpt = document.createElement("option");
+  customOpt.value = "__custom__";
+  customOpt.textContent = "Custom variable name…";
+  if (!currentVar) customOpt.selected = true;
+  select.appendChild(customOpt);
+
+  const customInput = document.createElement("input");
+  customInput.type = "text";
+  customInput.placeholder = "REOLINK_PASSWORD_...";
+  customInput.style.display = currentVar ? "none" : "block";
+  if (!currentVar && current) customInput.value = current.replace(/^\$\{|\}$/g, "");
+
+  select.onchange = () => {
+    if (select.value === "__custom__") {
+      customInput.style.display = "block";
+      customInput.oninput();
+    } else {
+      customInput.style.display = "none";
+      cfgSet(path, "${" + select.value + "}");
+    }
+  };
+  customInput.oninput = () => {
+    const name = customInput.value.trim();
+    cfgSet(path, name ? "${" + name + "}" : "");
+  };
+
+  wrap.appendChild(select);
+  wrap.appendChild(customInput);
+  return wrap;
 }
 
 function tagCheckGroup(path, allTags) {
@@ -812,9 +883,13 @@ function buildCamerasSection() {
   const sec = document.createElement("div");
   sec.className = "cfg-section";
   sec.innerHTML = `<h3>Cameras</h3>
-    <div class="cfg-hint-block">Passwords are read-only here — set the real
-    value in <code>.env</code> and reference it as <code>\${VAR_NAME}</code>.
-    Saving never writes a literal password into config.yaml.</div>`;
+    <div class="cfg-hint-block">Every camera's password is a reference to a
+    variable in <code>.env</code>, never a literal value here. Use one
+    <code>REOLINK_PASSWORD</code> for everything, or add more variables named
+    <code>REOLINK_PASSWORD_&lt;anything&gt;</code> (e.g.
+    <code>REOLINK_PASSWORD_NVR</code>, <code>REOLINK_PASSWORD_BACKYARD</code>)
+    if your devices use different accounts — each camera below picks which
+    one it uses.</div>`;
 
   const list = document.createElement("div");
   sec.appendChild(list);
@@ -861,8 +936,8 @@ function renderCameraCards(list) {
     card.appendChild(fieldRow("Channel", "0 for a camera; NVR channel otherwise",
       numberField(`cameras.${i}.channel`, {default: 0})));
     card.appendChild(fieldRow("Username", "", textField(`cameras.${i}.username`)));
-    card.appendChild(fieldRow("Password", "edit the real value in .env",
-      textField(`cameras.${i}.password`, {readonly: true})));
+    card.appendChild(fieldRow("Password", "which .env variable holds this camera's password — add the real value there, never here",
+      passwordField(`cameras.${i}.password`), true));
     card.appendChild(fieldRow("HTTPS", "", checkboxField(`cameras.${i}.https`, {default: true})));
     card.appendChild(fieldRow("Verify SSL cert", "leave off — Reolink certs are self-signed",
       checkboxField(`cameras.${i}.verify_ssl`, {default: false})));

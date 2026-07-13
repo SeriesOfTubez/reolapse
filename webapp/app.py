@@ -7,6 +7,7 @@
 import argparse
 import concurrent.futures
 import json
+import os
 import re
 import shutil
 import socket
@@ -27,6 +28,10 @@ VIDEO_TYPES = ("daily", "yearly", "events")
 US_ZIP_RE = re.compile(r"^\d{5}$")
 ENV_VAR_RE = re.compile(r"^\$\{[A-Za-z_][A-Za-z0-9_]*\}$")
 CAMERA_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+# Convention (not enforced by ENV_VAR_RE, which accepts any valid env var
+# name): password vars are discoverable in the Config page's dropdown when
+# they're named REOLINK_PASSWORD or REOLINK_PASSWORD_<anything>.
+PASSWORD_VAR_RE = re.compile(r"^REOLINK_PASSWORD(_\w+)?$")
 
 # name -> (accent, accent-strong, accent-quiet rgba). All calibrated to
 # roughly the same lightness/saturation as the amber default so a single
@@ -41,6 +46,16 @@ ACCENT_COLORS = {
 }
 
 REQUIRED_SECTIONS = ("capture", "storage", "daily_video", "yearly")
+
+
+def available_password_vars():
+    """Names (never values) of loaded env vars that look like camera
+    passwords, for the Config page's password dropdown. .env is already
+    loaded into os.environ by load_config() at process startup, so this is
+    just a filtered read of what's already there — no file access, no
+    secret ever leaves this function.
+    """
+    return sorted(k for k in os.environ if PASSWORD_VAR_RE.match(k))
 
 
 def config_warnings(cfg):
@@ -278,6 +293,7 @@ def create_app(cfg, config_path=None):
             "config": parsed,
             "path": str(state["path"]),
             "accent_colors": sorted(ACCENT_COLORS),
+            "password_vars": available_password_vars(),
         })
 
     @app.post("/api/config")
