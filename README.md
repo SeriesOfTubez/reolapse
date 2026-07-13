@@ -532,8 +532,7 @@ decision. The sunrise/sunset approach above doesn't have that problem.
 ## AI-assisted development
 
 This project was built with AI pair-programming assistance (Claude, via
-Claude Code) under human direction and review — most of the code and docs,
-including this README, were AI-generated. If that's a dealbreaker for you,
+Claude Code) under human direction and review — most of the code and docs were AI-generated. If that's a dealbreaker for you,
 that's a reasonable position; here's what's in place either way so you can
 judge for yourself rather than take it on faith:
 
