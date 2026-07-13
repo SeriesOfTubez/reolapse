@@ -293,9 +293,9 @@ resolutions, 1 frame/minute, all-day capture) to help you size disk up front:
 
 | Camera | Resolution | Avg JPEG size | Raw snapshots/day | Daily video/day |
 |---|---|---|---|---|
-| Doorbell | 2560×1920 (4.9 MP) | ~450 KB | ~0.6 GB | ~200 MB |
-| PTZ wide lens | 3840×2160 (8.3 MP) | ~1.3 MB | ~1.8 GB | ~290 MB |
-| Dual-lens panorama | 5120×1920 (9.8 MP) | ~1.7 MB | ~2.4 GB | ~470 MB |
+| Reolink Wired WiFi Doorbell | 2560×1920 (4.9 MP) | ~450 KB | ~0.6 GB | ~200 MB |
+| Reolink TrackMix WiFi (Wide Cam) | 3840×2160 (8.3 MP) | ~1.3 MB | ~1.8 GB | ~290 MB |
+| Reolink OMVI 3i WiFi (Fixed Cam) | 5120×1920 (9.8 MP) | ~1.7 MB | ~2.4 GB | ~470 MB |
 
 Rough rule of thumb: **~0.1–0.2 MB per megapixel per frame**, varying with
 scene complexity and each camera's own JPEG quality setting — the range above
