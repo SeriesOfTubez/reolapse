@@ -21,6 +21,12 @@ deflickered **daily** video per camera, archives frames into an ever-growing
 captures faster and cuts a dedicated **event** clip. Everything is browsable
 through a bundled single-page web app.
 
+<p align="center">
+  <img src="assets/sunrise-timelapse.gif" width="480" alt="Reolink camera timelapse showing a sunrise from 4am to 8am — night with streetlights giving way to dawn and a bright morning">
+  <br>
+  <em>A slice of one daily timelapse — 4&nbsp;a.m. → 8&nbsp;a.m. sunrise, captured on an interval through an NVR and built automatically overnight.</em>
+</p>
+
 > **Two things to know before you run this:** the web UI has no login by
 > default — video browsing is always open, and the Config page has an
 > optional passcode (see [Security](#security) — this is a LAN tool, don't
