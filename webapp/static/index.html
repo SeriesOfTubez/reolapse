@@ -1434,6 +1434,11 @@ function buildYearlySection() {
   const sec = document.createElement("div");
   sec.className = "cfg-section";
   sec.innerHTML = `<h3>Yearly video</h3>`;
+  sec.appendChild(fieldRow("Start after (days)", "Hold off rendering the yearly video until this many distinct "
+    + "days have been archived. A couple of days makes a pointless ~2-second clip, so the default waits until "
+    + "there's enough footage to be worth watching. 0 renders as soon as any frames exist. (Building is otherwise "
+    + "a weekly job; this just gates it early on.)",
+    numberField("yearly.min_days_before_render", {default: 30})));
   sec.appendChild(fieldRow("Archive frames/day", "How many frames per day get pulled aside into a permanent "
     + "archive (separate from the daily snapshots, which get pruned per Storage above). This archive is the "
     + "pool the yearly video is selected from, and is never automatically deleted — archive more than you plan "

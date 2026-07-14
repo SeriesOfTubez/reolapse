@@ -448,9 +448,20 @@ def cmd_events(cfg, args):
 
 def cmd_yearly(cfg, args):
     year = args.year or dt.date.today().year
+    # Don't render a yearly video from just a handful of days — a couple of
+    # days is a ~2-second clip that's more confusing than useful. Wait until
+    # this many distinct days have been archived (0 = render as soon as there
+    # are any frames). --force overrides it for an intentional early build.
+    min_days = cfg["yearly"].get("min_days_before_render", 30)
     for cam in selected_cameras(cfg, args.camera):
         frame_dir = yearly_frames_dir(cfg) / cam["name"] / str(year)
         archived = sorted(frame_dir.glob("*.jpg")) if frame_dir.is_dir() else []
+        days_archived = len({f.stem[:5] for f in archived})  # distinct MM-DD
+        if not getattr(args, "force", False) and days_archived < min_days:
+            log.info("%s: %d day(s) of yearly frames for %s — holding off until %d "
+                     "(yearly.min_days_before_render); pass --force to build now",
+                     cam["name"], days_archived, year, min_days)
+            continue
         frames = select_video_frames(archived, cfg["yearly"])
         if len(frames) < MIN_FRAMES:
             log.warning("%s: only %d yearly frame(s) for %s, skipping — "
@@ -506,6 +517,8 @@ def main():
                               help="build the yearly video from archived frames")
     p_yearly.add_argument("--year", type=int, default=None, help="default: current year")
     p_yearly.add_argument("--camera", default=None, help="only this camera")
+    p_yearly.add_argument("--force", action="store_true",
+                          help="build even if fewer than yearly.min_days_before_render days exist")
 
     p_events = sub.add_parser("events", parents=[shared],
                               help="(re)build event videos from the conditions log")

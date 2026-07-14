@@ -42,7 +42,9 @@ through a bundled single-page web app.
   auto-exposure flicker.
 - **Yearly "seasons" timelapse.** Frames are archived hourly and kept forever;
   the yearly video is rendered from a configurable, re-tunable subset
-  (e.g. 10 frames/day within daylight hours ≈ a 2-minute year).
+  (e.g. 10 frames/day within daylight hours ≈ a 2-minute year). It holds off
+  rendering until a configurable number of days have accumulated (30 by
+  default) so you don't get a pointless two-second clip in the first week.
 - **Weather-aware storm bursts.** Polls NWS alerts + Open-Meteo (free, no API
   keys). During storms/snow it captures every 10s instead of every 60s, and
   the nightly build cuts a per-storm clip.
@@ -288,6 +290,7 @@ not: reference them as `${VAR}` and put the values in `.env`. Highlights:
 | `storage.keep_snapshots_days` | Retention for raw frames after their video builds |
 | `daily_video.deflicker_size` | Deflicker window; `0` disables |
 | `daily_video.retention_days` | Delete a daily video this many days after its date; `0` = forever |
+| `yearly.min_days_before_render` | Wait until this many days are archived before rendering the yearly video (default 30); `0` renders as soon as any frames exist, `yearly --force` overrides once |
 | `yearly.video_frames_per_day` / `video_window` | Pacing of the yearly video |
 | `yearly.retention_years` | Delete a yearly video once it's this many years old; `0` = forever. Cheap to set low — see [Storage estimates](#storage-estimates) |
 | `events.weather_enabled` | Storm/snow/rain tagging + burst capture (needs `events.zip` or `latitude`/`longitude`) |

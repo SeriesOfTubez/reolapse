@@ -88,6 +88,11 @@ daily_video:
                               # source frames are already gone by then too.
 
 yearly:
+  min_days_before_render: 30  # wait until this many distinct days have been
+                              # archived before rendering the yearly video — a
+                              # couple of days is a pointless ~2s clip. 0 renders
+                              # as soon as any frames exist; `yearly --force`
+                              # overrides it for a one-off early build.
   archive_frames_per_day: 24  # frames kept forever per day; the pool the yearly
                               # video is rendered from (archive more than you render)
   video_frames_per_day: 10    # 10/day x 365 @ 30 fps ~= a 2-minute year
