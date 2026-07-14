@@ -182,6 +182,10 @@ def validate_config(cfg):
     if pw_hash is not None and not isinstance(pw_hash, str):
         problems.append("webapp.config_passcode_hash must be a string (set it via the Config page, not by hand)")
 
+    dl_mode = ((cfg.get("capture") or {}).get("daylight_window") or {}).get("mode")
+    if dl_mode is not None and str(dl_mode).strip().lower() not in ("day", "night"):
+        problems.append('capture.daylight_window.mode must be "day" or "night"')
+
     tzname = (cfg.get("capture") or {}).get("timezone")
     if tzname and tzinfo_for(tzname) is None:
         problems.append(f"capture.timezone {tzname!r} is not a valid IANA time zone "

@@ -13,6 +13,8 @@ import datetime as dt
 import json
 import logging
 import shutil
+import subprocess
+import sys
 import time
 import uuid
 
@@ -20,8 +22,17 @@ import requests
 import urllib3
 
 import events
-from common import (APP_VERSION, load_config, local_now, local_today,
+from common import (APP_ROOT, APP_VERSION, load_config, local_now, local_today,
                     snapshots_dir, tzinfo_for, videos_dir)
+
+# A "night" spans midnight, so night frames are bucketed by a noon-to-noon
+# logical day (shift the timestamp back 12h). That makes one evening + the
+# following morning land in a single folder — one continuous video — and sort
+# in chronological order by filename.
+NIGHT_DAY_SHIFT = dt.timedelta(hours=12)
+# After a night's capture window closes in the morning, wait this long before
+# kicking off its build, so the last frames are settled.
+NIGHT_BUILD_DELAY = dt.timedelta(minutes=5)
 
 log = logging.getLogger("capture")
 
@@ -91,6 +102,9 @@ class DaylightWindow:
     def __init__(self, cfg, tz=None):
         self.cfg = cfg["capture"].get("daylight_window") or {}
         self.enabled = bool(self.cfg.get("enabled"))
+        # "day" captures inside the sunrise/sunset window; "night" captures its
+        # complement (the dark hours), which spans midnight.
+        self.mode = (self.cfg.get("mode") or "day").strip().lower()
         self.events_cfg = cfg.get("events") or {}
         self.ephem_dir = cfg["storage"]["root"] / "ephemeris"
         self.tz = tz
@@ -212,9 +226,14 @@ def parse_hhmm(value):
 def within_window(now, capture_cfg, daylight=None) -> bool:
     if daylight and daylight.enabled:
         start, end = daylight.window_for(now.date())
-    else:
-        start = parse_hhmm(capture_cfg.get("start_time"))
-        end = parse_hhmm(capture_cfg.get("end_time"))
+        if start is None and end is None:
+            return True  # sunrise/sunset unavailable -> fail open (capture)
+        in_daylight = not ((start and now.time() < start) or (end and now.time() > end))
+        # Night mode captures the complement of the daylight window.
+        return (not in_daylight) if daylight.mode == "night" else in_daylight
+
+    start = parse_hhmm(capture_cfg.get("start_time"))
+    end = parse_hhmm(capture_cfg.get("end_time"))
     if start and now.time() < start:
         return False
     if end and now.time() > end:
@@ -259,6 +278,11 @@ def run_once(cfg, conditions=None, daylight=None, tz=None):
         log.debug("outside capture window, skipping")
         return
 
+    # In night mode, bucket by the noon-to-noon logical day so a night's
+    # evening + following-morning frames share one folder and sort in order.
+    night = bool(daylight and daylight.enabled and daylight.mode == "night")
+    capture_dt = (now - NIGHT_DAY_SHIFT) if night else now
+
     tags = sorted(conditions.tags) if conditions else []
     out_root = snapshots_dir(cfg)
     for cam in cfg["cameras"]:
@@ -269,7 +293,7 @@ def run_once(cfg, conditions=None, daylight=None, tz=None):
             log.info("%s: not at home position, quarantining frame", cam["name"])
         for attempt in (1, 2):
             try:
-                path, size = take_snapshot(cam, capture_cfg, out_root, now, quarantine, tags)
+                path, size = take_snapshot(cam, capture_cfg, out_root, capture_dt, quarantine, tags)
                 log.info("%s: saved %s (%d KB)", cam["name"], path.name, size // 1024)
                 break
             except Exception as exc:
@@ -282,7 +306,22 @@ def run_once(cfg, conditions=None, daylight=None, tz=None):
                     log.error("%s: snapshot failed: %s", cam["name"], msg)
 
 
-def loop(cfg):
+def trigger_night_build(config_path, date):
+    """Launch the daily build for a just-completed night as a detached process,
+    so a slow ffmpeg run never stalls capture. build_timelapse handles its own
+    logging and failures; a bad build must not take capture down."""
+    cmd = [sys.executable, str(APP_ROOT / "build_timelapse.py"),
+           "daily", "--date", date.isoformat()]
+    if config_path:
+        cmd += ["--config", str(config_path)]
+    log.info("night ended — launching build for %s", date)
+    try:
+        subprocess.Popen(cmd)
+    except Exception:
+        log.exception("failed to launch night build for %s", date)
+
+
+def loop(cfg, config_path=None):
     configured_interval = cfg["capture"]["interval_seconds"]
     base_interval = max(MIN_INTERVAL_SECONDS, configured_interval)
     if configured_interval < MIN_INTERVAL_SECONDS:
@@ -293,9 +332,16 @@ def loop(cfg):
     log.info("capture timezone: %s", tz.key if tz is not None else "host system default")
     conditions = Conditions(cfg)
     daylight = DaylightWindow(cfg, tz)
+    night_mode = daylight.enabled and daylight.mode == "night"
     if daylight.enabled and (cfg["capture"].get("start_time") or cfg["capture"].get("end_time")):
         log.warning("capture.daylight_window is enabled; static start_time/end_time are ignored")
+    if night_mode:
+        log.info("night mode: capturing dark hours; each night's video is built "
+                 "~%d min after the window closes at dawn", NIGHT_BUILD_DELAY.seconds // 60)
     last_prune_day = None
+    was_in_window = None
+    pending_build_date = None
+    pending_build_at = None
     while True:
         conditions.refresh()
         # Burst tags (storm/snow) shorten the interval; pick a burst interval
@@ -304,6 +350,21 @@ def loop(cfg):
         now = time.time()
         time.sleep(interval - (now % interval))
         run_once(cfg, conditions, daylight, tz)
+
+        now_local = local_now(tz)
+        if night_mode:
+            # When capture crosses from the night window into daylight at dawn,
+            # the night just finished — schedule its build a few minutes later.
+            in_window = within_window(now_local, cfg["capture"], daylight)
+            if was_in_window and not in_window:
+                pending_build_date = (now_local - NIGHT_DAY_SHIFT).date()
+                pending_build_at = now_local + NIGHT_BUILD_DELAY
+                log.info("night window closed; build for %s scheduled ~%s",
+                         pending_build_date, pending_build_at.strftime("%H:%M"))
+            if pending_build_date and now_local >= pending_build_at:
+                trigger_night_build(config_path, pending_build_date)
+                pending_build_date = pending_build_at = None
+            was_in_window = in_window
 
         today = local_today(tz)
         if today != last_prune_day:
@@ -326,7 +387,7 @@ def main():
     cfg = load_config(args.config)
 
     if args.loop:
-        loop(cfg)
+        loop(cfg, args.config)
     else:
         tz = tzinfo_for(events.resolve_timezone(cfg))
         conditions = Conditions(cfg)

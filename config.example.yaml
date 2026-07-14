@@ -71,10 +71,18 @@ capture:
                               # clock window — see the README section on IR
                               # and 24-hour timelapses for why this matters.
     enabled: false            # overrides start_time/end_time when true
-    buffer_minutes: 0         # start this many minutes before sunrise, stop
-                              # this many after sunset. Uses the same location
-                              # as events.zip/latitude/longitude below,
-                              # independent of weather_enabled/lunar_enabled.
+    mode: day                 # "day" captures the daylight window; "night"
+                              # captures its complement (dark hours). A night
+                              # spans midnight and is stored as ONE video (its
+                              # frames bucket by a noon-to-noon day). In night
+                              # mode the capture service builds each night ~5
+                              # min after the dawn window closes, not on the
+                              # nightly timer.
+    buffer_minutes: 0         # day mode: start this many minutes before sunrise,
+                              # stop this many after sunset. Night mode: the
+                              # inverse — trims that many minutes of twilight off
+                              # each end of the night. Uses the same location as
+                              # events.zip/latitude/longitude below.
 
 storage:
   root: ./data                # relative paths resolve next to config.yaml
