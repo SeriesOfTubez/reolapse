@@ -306,6 +306,10 @@ The **Config** tab edits `config.yaml` from the browser instead of by hand —
 every setting above except secrets (see below) is exposed as a checkbox,
 dropdown, radio, or text field.
 
+<p align="center">
+  <img src="assets/screenshot-config.png" width="820" alt="ReoLapse Config page: editing a camera in the browser — name, host, channel, username, a password field that's a dropdown of .env variable references, and HTTPS / verify-SSL toggles, with Save config and Restart services buttons">
+</p>
+
 - **Passwords are always a variable reference, never a real value, in the
   UI.** Each camera's password field is a dropdown of `REOLINK_PASSWORD*`
   variables this server has loaded from `.env` (names only — the actual
@@ -363,6 +367,10 @@ dropdown, radio, or text field.
   discovery to work in a container.
 
 ## Storage estimates
+
+<p align="center">
+  <img src="assets/screenshot-storage.png" width="820" alt="ReoLapse Storage tab: stat cards for disk used, snapshots, daily and yearly video sizes and average build time; a storage runway forecast banner; and a per-camera usage table">
+</p>
 
 The **Storage** tab in the web UI shows live per-camera and system-wide usage
 and daily growth (`storage_stats.py`, refreshed after every nightly build —
