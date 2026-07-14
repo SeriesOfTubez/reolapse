@@ -201,6 +201,16 @@ def season_metadata(cfg, date):
 def cmd_daily(cfg, args):
     start = time.time()
     tz = build_timezone(cfg)
+    dl = cfg["capture"].get("daylight_window") or {}
+    night = bool(dl.get("enabled")) and (dl.get("mode") or "day").strip().lower() == "night"
+    if night and args.date is None:
+        # In night mode the capture service triggers each night's build once the
+        # dawn window closes (a night isn't complete at the fixed nightly-timer
+        # time), so the scheduled/default build is a no-op. An explicit --date
+        # (what the capture service passes) still builds.
+        log.info("night mode: daily builds run when each night ends (capture "
+                 "service). Skipping default build — pass --date to force one.")
+        return
     date = resolve_date(args.date, tz)
     season = season_metadata(cfg, date)
     for cam in selected_cameras(cfg, args.camera):
@@ -518,8 +528,9 @@ def main():
 
     p_daily = sub.add_parser("daily", parents=[shared],
                              help="build a daily video and archive yearly frames")
-    p_daily.add_argument("--date", default="yesterday",
-                         help="YYYY-MM-DD, 'today', or 'yesterday' (default)")
+    p_daily.add_argument("--date", default=None,
+                         help="YYYY-MM-DD, 'today', or 'yesterday' (default). In night "
+                              "mode the default is a no-op — builds are triggered by capture")
     p_daily.add_argument("--camera", default=None, help="only this camera")
 
     p_yearly = sub.add_parser("yearly", parents=[shared],

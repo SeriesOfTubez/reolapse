@@ -7,6 +7,12 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Night mode** (`capture.daylight_window.mode: night`): capture only the dark
+  hours (the inverse of the daylight window). A night spans midnight and is
+  saved as one continuous video — frames bucket by a noon-to-noon day — and the
+  capture service builds each night automatically ~5 minutes after its window
+  closes at dawn (the fixed nightly timer can't, since a night finishes in the
+  morning).
 - Timezone-accurate capture: set `capture.timezone` (an IANA name like
   `America/Chicago`) or let it auto-detect from `events.zip` /
   latitude-longitude via Open-Meteo (cached to `data/timezone.txt`). Capture

@@ -606,6 +606,25 @@ a live readout of which one is currently active. For a camera left on
 nothing about the moment-to-moment state, so it can't drive a per-frame
 decision. The sunrise/sunset approach above doesn't have that problem.
 
+### Night-only timelapses (night mode)
+
+Set `capture.daylight_window.mode: night` (with the window `enabled`) to do the
+**opposite** of daylight capture — record only the **dark hours** and skip the
+day. It reuses the same sunrise/sunset math, just inverted; `buffer_minutes`
+trims that much twilight off each end of the night instead of extending it.
+
+Because a night spans midnight, night mode buckets frames by a **noon-to-noon
+day**, so one evening plus the following morning become **one continuous video**
+(labeled by the night's start date) instead of two half-clips split at midnight.
+And since a night isn't finished until dawn, the nightly timer can't build it —
+the **capture service builds each night automatically ~5 minutes after its
+window closes at sunrise**. (A manual build still works:
+`build_timelapse.py daily --date YYYY-MM-DD`.)
+
+Night mode needs a location set (`events.zip` or `latitude`/`longitude`), same
+as the daylight window. Leave `yearly.video_window` empty when using it — a
+daylight-hours filter makes no sense for night frames.
+
 ## Security
 
 - **There is no authentication.** The web UI has no login, no access control,

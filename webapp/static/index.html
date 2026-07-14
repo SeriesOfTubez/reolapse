@@ -1381,9 +1381,16 @@ function buildCaptureSection() {
     + "this keeps those frames out of the timelapse. Overrides Start/End time below when on; needs a location "
     + "(ZIP or lat/lon) set in Weather & astronomy tagging.",
     checkboxField("capture.daylight_window.enabled", {default: false})));
+  sec.appendChild(fieldRow("Window mode",
+    "With Auto daylight window on: \"day\" captures during daylight (the default); \"night\" captures the "
+    + "opposite — the dark hours only. A night spans midnight and is saved as one continuous video (built "
+    + "automatically ~5 min after the dawn window closes), so you get night-only timelapses that aren't cut off "
+    + "at midnight.",
+    selectField("capture.daylight_window.mode", ["day", "night"], {default: "day"})));
   sec.appendChild(fieldRow("Daylight buffer (minutes)",
-    "Widens the auto daylight window by this many minutes on each side — starts capturing this long before "
-    + "sunrise, stops this long after sunset. Only matters when Auto daylight window above is on.",
+    "In day mode, widens the window by this many minutes each side (start before sunrise, stop after sunset). "
+    + "In night mode it's the inverse — trims that much twilight off each end of the night. Only matters when "
+    + "Auto daylight window above is on.",
     numberField("capture.daylight_window.buffer_minutes", {default: 0})));
   sec.appendChild(fieldRow("Start time (HH:MM)", "Fixed daily start time for capture, e.g. \"05:30\". Empty "
     + "means capture all day. Ignored whenever Auto daylight window above is on.",
