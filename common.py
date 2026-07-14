@@ -21,6 +21,18 @@ except ImportError:  # dotenv is optional if you set env vars another way
 APP_ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG = APP_ROOT / "config.yaml"
 
+
+def app_version():
+    """The release version from the VERSION file, or 'unknown' if it's missing
+    (e.g. a partial copy). Used for logging and the web UI's version display."""
+    try:
+        return (APP_ROOT / "VERSION").read_text(encoding="utf-8").strip() or "unknown"
+    except OSError:
+        return "unknown"
+
+
+APP_VERSION = app_version()
+
 _ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 

@@ -27,7 +27,7 @@ import yaml
 from flask import Flask, abort, jsonify, request, send_from_directory
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from common import DEFAULT_CONFIG, load_config, videos_dir  # noqa: E402
+from common import APP_VERSION, DEFAULT_CONFIG, load_config, videos_dir  # noqa: E402
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -432,6 +432,7 @@ def create_app(cfg, config_path=None):
             "cameras": sorted({v["camera"] for v in videos}),
             "videos": videos,
             "warnings": config_warnings(cfg),
+            "version": APP_VERSION,
         })
 
     @app.get("/api/storage")
@@ -673,6 +674,7 @@ def main():
     config_path = Path(args.config).resolve() if args.config else DEFAULT_CONFIG
     cfg = load_config(str(config_path))
     web = cfg.get("webapp", {})
+    print(f"ReoLapse web v{APP_VERSION}")
     app = create_app(cfg, config_path)
     app.run(host=web.get("host", "127.0.0.1"), port=web.get("port", 8080), threaded=True)
 

@@ -79,6 +79,7 @@
     font-weight: var(--fw-semibold);
     letter-spacing: 0.2px;
   }
+  .brand .version { color: var(--text-3); font-size: var(--fs-xs); align-self: flex-end; margin-bottom: 3px; }
 
   .pills { display: flex; gap: var(--space-2); flex-wrap: wrap; }
   .pill {
@@ -433,6 +434,7 @@
   <div class="brand">
     <img src="/static/logo.svg" alt="">
     <h1>ReoLapse</h1>
+    <span class="version" id="version"></span>
   </div>
   <div class="pills" id="cameras"></div>
   <div class="pills" id="types">
@@ -460,6 +462,10 @@ async function load() {
   const res = await fetch("/api/videos");
   const data = await res.json();
   state.videos = data.videos;
+  if (data.version) {
+    const v = document.getElementById("version");
+    if (v) v.textContent = "v" + data.version;
+  }
 
   const warnBox = document.getElementById("warnings");
   warnBox.innerHTML = "";

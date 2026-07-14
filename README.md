@@ -275,6 +275,35 @@ sudo visudo -cf deploy/reolapse.sudoers \
   && sudo install -m 0440 -o root -g root deploy/reolapse.sudoers /etc/sudoers.d/reolapse
 ```
 
+## Upgrading
+
+Upgrades only change code — your `config.yaml`, `.env`, and `data/` are
+gitignored (Linux) or on a named volume (Docker), so history and settings are
+never touched.
+
+**Linux (installed with `install.sh`):**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SeriesOfTubez/reolapse/main/upgrade.sh | bash
+```
+
+…or `bash upgrade.sh` from your install dir. It fetches the latest release,
+reinstalls dependencies, refreshes the systemd units, and restarts the
+services. Pin a version with `REOLAPSE_REF=v0.2.0`, or track the tip of `main`
+with `REOLAPSE_REF=main`.
+
+**Docker:**
+
+```bash
+cd /path/to/reolapse && git pull && docker compose up -d --build
+```
+
+The `data` volume survives the rebuild.
+
+Releases are tagged and listed on the
+[Releases page](https://github.com/SeriesOfTubez/reolapse/releases). The running
+version appears in the web UI header and in the capture/web service logs.
+
 ## Configuration
 
 Everything lives in `config.yaml` (copy from `config.example.yaml`). Secrets do

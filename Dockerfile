@@ -11,6 +11,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY *.py ./
+COPY VERSION ./
 COPY webapp ./webapp
 
 # Run as an unprivileged user; /app/data is where a fresh volume mounts.

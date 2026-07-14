@@ -20,7 +20,7 @@ import requests
 import urllib3
 
 import events
-from common import load_config, snapshots_dir, videos_dir
+from common import APP_VERSION, load_config, snapshots_dir, videos_dir
 
 log = logging.getLogger("capture")
 
@@ -318,6 +318,7 @@ def main():
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )
+    log.info("ReoLapse capture v%s", APP_VERSION)
     cfg = load_config(args.config)
 
     if args.loop:
