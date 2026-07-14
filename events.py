@@ -135,10 +135,13 @@ def season_for_date(date, cache_dir, lat=None):
     return names[current]
 
 
-def sunrise_sunset(date, lat, lon, cache_dir):
+def sunrise_sunset(date, lat, lon, cache_dir, tz=None):
     """Local (sunrise, sunset) times as datetime.time for a given date and
     location. Either may be None during polar day/night, when the sun
     doesn't rise or set that day.
+
+    `tz` (a tzinfo) selects the zone the returned times are expressed in and
+    the zone `date` is interpreted in; None uses the host timezone.
     """
     from skyfield import almanac
     from skyfield.api import wgs84
@@ -153,7 +156,7 @@ def sunrise_sunset(date, lat, lon, cache_dir):
 
     sunrise = sunset = None
     for t, is_up in zip(times, sun_is_up):
-        local = t.utc_datetime().astimezone()
+        local = t.utc_datetime().astimezone(tz)
         if local.date() != date:
             continue
         if is_up and sunrise is None:
@@ -280,6 +283,69 @@ def resolve_location(cfg) -> tuple:
         _ZIP_CACHE[zip_code] = (float(place["latitude"]), float(place["longitude"]))
         log.info("resolved ZIP %s -> %.4f, %.4f", zip_code, *_ZIP_CACHE[zip_code])
     return _ZIP_CACHE[zip_code]
+
+
+_TZ_CACHE = {}
+
+
+def resolve_timezone(cfg):
+    """IANA timezone name for capture timing (e.g. 'America/Chicago'), or None.
+
+    Priority: an explicit ``capture.timezone``; else auto-detected from the
+    configured location (``events.zip`` / ``latitude``+``longitude``) via
+    Open-Meteo's ``timezone=auto`` and cached to ``<storage.root>/timezone.txt``
+    so it survives offline restarts; else None (caller uses the host timezone).
+
+    Everything is best-effort — any failure returns None rather than raising, so
+    capture never breaks over a timezone lookup.
+    """
+    explicit = (cfg.get("capture") or {}).get("timezone")
+    if explicit:
+        return str(explicit).strip()
+
+    try:
+        lat, lon = resolve_location(cfg.get("events") or {})
+    except Exception:
+        return None
+
+    key = (round(lat, 3), round(lon, 3))
+    if key in _TZ_CACHE:
+        return _TZ_CACHE[key]
+
+    cache_file = None
+    try:
+        cache_file = Path(cfg["storage"]["root"]) / "timezone.txt"
+        if cache_file.exists():
+            cached = cache_file.read_text(encoding="utf-8").strip()
+            if cached:
+                _TZ_CACHE[key] = cached
+                return cached
+    except Exception:
+        pass
+
+    try:
+        resp = requests.get(
+            "https://api.open-meteo.com/v1/forecast",
+            params={"latitude": lat, "longitude": lon, "timezone": "auto",
+                    "forecast_days": 1},
+            headers={"User-Agent": USER_AGENT}, timeout=10)
+        resp.raise_for_status()
+        tzname = resp.json().get("timezone")
+    except Exception as exc:
+        log.warning("timezone auto-detect failed (%s) — using the host timezone; "
+                    "set capture.timezone to be sure", exc)
+        return None
+
+    if tzname:
+        _TZ_CACHE[key] = tzname
+        log.info("auto-detected timezone %s for %.3f, %.3f", tzname, lat, lon)
+        if cache_file is not None:
+            try:
+                cache_file.parent.mkdir(parents=True, exist_ok=True)
+                cache_file.write_text(tzname, encoding="utf-8")
+            except OSError:
+                pass
+    return tzname
 
 
 def get_active_tags(events_cfg, cache_dir=None) -> dict:

@@ -20,7 +20,8 @@ import requests
 import urllib3
 
 import events
-from common import APP_VERSION, load_config, snapshots_dir, videos_dir
+from common import (APP_VERSION, load_config, local_now, local_today,
+                    snapshots_dir, tzinfo_for, videos_dir)
 
 log = logging.getLogger("capture")
 
@@ -87,11 +88,12 @@ class DaylightWindow:
     is unavailable, same policy as the rest of capture.py's checks.
     """
 
-    def __init__(self, cfg):
+    def __init__(self, cfg, tz=None):
         self.cfg = cfg["capture"].get("daylight_window") or {}
         self.enabled = bool(self.cfg.get("enabled"))
         self.events_cfg = cfg.get("events") or {}
         self.ephem_dir = cfg["storage"]["root"] / "ephemeris"
+        self.tz = tz
         self._cached_date = None
         self._window = (None, None)
 
@@ -105,7 +107,7 @@ class DaylightWindow:
         buffer_min = self.cfg.get("buffer_minutes", 0)
         try:
             lat, lon = events.resolve_location(self.events_cfg)
-            sunrise, sunset = events.sunrise_sunset(today, lat, lon, self.ephem_dir)
+            sunrise, sunset = events.sunrise_sunset(today, lat, lon, self.ephem_dir, self.tz)
         except Exception as exc:
             log.warning("daylight window unavailable, capturing all day: %s", exc)
             return None, None
@@ -220,12 +222,12 @@ def within_window(now, capture_cfg, daylight=None) -> bool:
     return True
 
 
-def prune_old_snapshots(cfg):
+def prune_old_snapshots(cfg, tz=None):
     """Delete day folders past retention, but only once their daily video exists."""
     keep_days = cfg["storage"].get("keep_snapshots_days", 0)
     if not keep_days:
         return
-    cutoff = dt.date.today() - dt.timedelta(days=keep_days)
+    cutoff = local_today(tz) - dt.timedelta(days=keep_days)
 
     snap_root = snapshots_dir(cfg)
     if not snap_root.exists():
@@ -250,8 +252,8 @@ def prune_old_snapshots(cfg):
             log.info("pruned snapshots %s/%s", cam_dir.name, day_dir.name)
 
 
-def run_once(cfg, conditions=None, daylight=None):
-    now = dt.datetime.now()
+def run_once(cfg, conditions=None, daylight=None, tz=None):
+    now = local_now(tz)
     capture_cfg = cfg["capture"]
     if not within_window(now, capture_cfg, daylight):
         log.debug("outside capture window, skipping")
@@ -287,8 +289,10 @@ def loop(cfg):
         log.warning("capture.interval_seconds=%s is below the %ds minimum — using %ds "
                     "(faster polling risks overloading the camera/NVR)",
                     configured_interval, MIN_INTERVAL_SECONDS, MIN_INTERVAL_SECONDS)
+    tz = tzinfo_for(events.resolve_timezone(cfg))
+    log.info("capture timezone: %s", tz.key if tz is not None else "host system default")
     conditions = Conditions(cfg)
-    daylight = DaylightWindow(cfg)
+    daylight = DaylightWindow(cfg, tz)
     if daylight.enabled and (cfg["capture"].get("start_time") or cfg["capture"].get("end_time")):
         log.warning("capture.daylight_window is enabled; static start_time/end_time are ignored")
     last_prune_day = None
@@ -299,11 +303,11 @@ def loop(cfg):
         interval = conditions.interval(base_interval)
         now = time.time()
         time.sleep(interval - (now % interval))
-        run_once(cfg, conditions, daylight)
+        run_once(cfg, conditions, daylight, tz)
 
-        today = dt.date.today()
+        today = local_today(tz)
         if today != last_prune_day:
-            prune_old_snapshots(cfg)
+            prune_old_snapshots(cfg, tz)
             last_prune_day = today
 
 
@@ -324,10 +328,11 @@ def main():
     if args.loop:
         loop(cfg)
     else:
+        tz = tzinfo_for(events.resolve_timezone(cfg))
         conditions = Conditions(cfg)
         conditions.refresh()
-        run_once(cfg, conditions, DaylightWindow(cfg))
-        prune_old_snapshots(cfg)
+        run_once(cfg, conditions, DaylightWindow(cfg, tz), tz)
+        prune_old_snapshots(cfg, tz)
 
 
 if __name__ == "__main__":

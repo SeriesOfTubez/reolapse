@@ -27,7 +27,7 @@ import yaml
 from flask import Flask, abort, jsonify, request, send_from_directory
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from common import APP_VERSION, DEFAULT_CONFIG, load_config, videos_dir  # noqa: E402
+from common import APP_VERSION, DEFAULT_CONFIG, load_config, tzinfo_for, videos_dir  # noqa: E402
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -181,6 +181,11 @@ def validate_config(cfg):
     pw_hash = (cfg.get("webapp") or {}).get("config_passcode_hash")
     if pw_hash is not None and not isinstance(pw_hash, str):
         problems.append("webapp.config_passcode_hash must be a string (set it via the Config page, not by hand)")
+
+    tzname = (cfg.get("capture") or {}).get("timezone")
+    if tzname and tzinfo_for(tzname) is None:
+        problems.append(f"capture.timezone {tzname!r} is not a valid IANA time zone "
+                        '(e.g. "America/Chicago") — leave it blank to auto-detect')
 
     # Minimum poll interval — faster than this risks overloading the camera/NVR.
     for path, val in (("capture.interval_seconds", (cfg.get("capture") or {}).get("interval_seconds")),

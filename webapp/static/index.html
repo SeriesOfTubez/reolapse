@@ -1365,6 +1365,11 @@ function buildCaptureSection() {
   const sec = document.createElement("div");
   sec.className = "cfg-section";
   sec.innerHTML = `<h3>Capture</h3>`;
+  sec.appendChild(fieldRow("Time zone", "IANA time zone name (e.g. \"America/Chicago\") used for capture "
+    + "timing and day boundaries. Leave blank to auto-detect from your location (ZIP or latitude/longitude in "
+    + "Weather & astronomy below), falling back to the host machine's clock. Setting this — or a location — keeps "
+    + "your days from splitting at the wrong hour if the host clock is misconfigured.",
+    textField("capture.timezone", {placeholder: "auto-detect from location"})));
   sec.appendChild(fieldRow("Interval (seconds)", "How often each camera grabs a snapshot. This is the biggest "
     + "lever on both video smoothness and disk use — 60s (one frame/minute) gives a ~48s daily video at 30fps; "
     + "halving it doubles frame count, storage, and video length alike. Minimum 10s — faster polling risks "

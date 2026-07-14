@@ -8,6 +8,7 @@ systemd values win). See config.example.yaml and .env.example.
 
 import os
 import re
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -18,8 +19,36 @@ except ImportError:  # dotenv is optional if you set env vars another way
     def load_dotenv(*_args, **_kwargs):
         return False
 
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # pragma: no cover - zoneinfo is stdlib on 3.9+
+    ZoneInfo = None
+
 APP_ROOT = Path(__file__).resolve().parent
 DEFAULT_CONFIG = APP_ROOT / "config.yaml"
+
+
+def tzinfo_for(tzname):
+    """A tzinfo for an IANA name (e.g. 'America/Chicago'), or None if the name
+    is empty/unknown or zoneinfo/tzdata is unavailable — in which case callers
+    fall back to host-local time. Never raises."""
+    if not tzname or ZoneInfo is None:
+        return None
+    try:
+        return ZoneInfo(str(tzname).strip())
+    except Exception:
+        return None
+
+
+def local_now(tz=None):
+    """Current time. With a tzinfo, an aware datetime in that zone; otherwise
+    host-local naive time (the original, pre-timezone-config behavior). Using a
+    configured zone means a misconfigured host clock can't shift capture days."""
+    return datetime.now(tz) if tz is not None else datetime.now()
+
+
+def local_today(tz=None):
+    return local_now(tz).date()
 
 
 def app_version():

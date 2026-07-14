@@ -23,7 +23,8 @@ import tempfile
 import time
 from pathlib import Path
 
-from common import load_config, snapshots_dir, videos_dir, yearly_frames_dir
+from common import (load_config, local_today, snapshots_dir, tzinfo_for,
+                    videos_dir, yearly_frames_dir)
 
 log = logging.getLogger("timelapse")
 
@@ -199,7 +200,8 @@ def season_metadata(cfg, date):
 
 def cmd_daily(cfg, args):
     start = time.time()
-    date = resolve_date(args.date)
+    tz = build_timezone(cfg)
+    date = resolve_date(args.date, tz)
     season = season_metadata(cfg, date)
     for cam in selected_cameras(cfg, args.camera):
         frames = day_frames(cfg, cam["name"], date)
@@ -443,11 +445,11 @@ def build_event_videos(cfg, date, camera=None):
 
 
 def cmd_events(cfg, args):
-    build_event_videos(cfg, resolve_date(args.date), args.camera)
+    build_event_videos(cfg, resolve_date(args.date, build_timezone(cfg)), args.camera)
 
 
 def cmd_yearly(cfg, args):
-    year = args.year or dt.date.today().year
+    year = args.year or local_today(build_timezone(cfg)).year
     # Don't render a yearly video from just a handful of days — a couple of
     # days is a ~2-second clip that's more confusing than useful. Wait until
     # this many distinct days have been archived (0 = render as soon as there
@@ -482,11 +484,18 @@ def cmd_yearly(cfg, args):
             log.exception("%s: yearly video retention pruning failed", cam["name"])
 
 
-def resolve_date(value) -> dt.date:
+def build_timezone(cfg):
+    """Configured-or-auto tzinfo (or None for host) so the build's notion of
+    'today'/'yesterday' matches the timezone capture used to bucket frames."""
+    import events
+    return tzinfo_for(events.resolve_timezone(cfg))
+
+
+def resolve_date(value, tz=None) -> dt.date:
     if value in (None, "yesterday"):
-        return dt.date.today() - dt.timedelta(days=1)
+        return local_today(tz) - dt.timedelta(days=1)
     if value == "today":
-        return dt.date.today()
+        return local_today(tz)
     return dt.date.fromisoformat(value)
 
 

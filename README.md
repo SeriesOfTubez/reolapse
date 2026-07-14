@@ -259,8 +259,12 @@ sudo systemctl enable --now reolapse-capture.service \
      reolapse-web.service reolapse-daily.timer reolapse-yearly.timer
 ```
 
-Finally, set the machine's timezone (`sudo timedatectl set-timezone …`) so
-capture days line up with your local midnight.
+Finally, make sure ReoLapse knows your timezone so capture days line up with
+your local midnight: either set `capture.timezone` (an IANA name like
+`America/Chicago`), leave it blank to auto-detect from your `events.zip` /
+latitude-longitude, or set the host clock (`sudo timedatectl set-timezone …`).
+The config option is the most reliable — it doesn't depend on the host clock
+being right.
 
 **(Optional) Enable the Config page's Restart button.** A ready-made, scoped
 sudo drop-in ships in `deploy/`. It also defaults to user `ubuntu`, so set it to
@@ -313,7 +317,8 @@ not: reference them as `${VAR}` and put the values in `.env`. Highlights:
 |---|---|
 | `cameras[].host` / `channel` | Camera IP + `0`, or NVR IP + channel number |
 | `cameras[].ptz_home` | Quarantine frames taken off a PTZ camera's home position |
-| `capture.interval_seconds` | Base capture cadence (default 60) |
+| `capture.timezone` | IANA timezone for capture timing/day boundaries; blank auto-detects from location, else falls back to the host clock |
+| `capture.interval_seconds` | Base capture cadence (default 60, minimum 10) |
 | `capture.start_time`/`end_time` | Optional fixed daily capture window |
 | `capture.daylight_window` | Capture only around actual sunrise/sunset instead of a fixed clock window — see [Night capture & IR cameras](#night-capture--ir-cameras) |
 | `storage.keep_snapshots_days` | Retention for raw frames after their video builds |

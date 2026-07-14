@@ -54,6 +54,12 @@ cameras:
   #     tolerance: 10
 
 capture:
+  timezone: ""                # IANA name (e.g. "America/Chicago") for capture
+                              # timing and day boundaries. Empty = auto-detect
+                              # from events.zip / latitude+longitude below,
+                              # falling back to the host system clock. Set this
+                              # (or a location) so a misconfigured host clock
+                              # can't split your days at the wrong hour.
   interval_seconds: 60        # one frame/minute -> ~48s daily video at 30 fps.
                               # Minimum 10s — faster polling can overload the
                               # camera/NVR (clamped, and rejected by the web UI).
