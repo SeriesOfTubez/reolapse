@@ -26,6 +26,12 @@ log = logging.getLogger("capture")
 
 JPEG_MAGIC = b"\xff\xd8"
 
+# Floor on how often we poll a device for a snapshot. Sub-10s polling risks
+# loading the camera/NVR (and hammers battery cameras behind a hub); 10s is
+# also the storm-burst interval, so it's a sane, tested minimum. Enforced here
+# and rejected by the web config validator.
+MIN_INTERVAL_SECONDS = 10
+
 
 class Conditions:
     """Tracks active weather/astronomy tags, throttled to poll_minutes.
@@ -66,7 +72,7 @@ class Conditions:
     def interval(self, base_seconds):
         burst_tags = set(self.wcfg.get("burst_tags") or [])
         if burst_tags & set(self.tags):
-            return self.wcfg.get("burst_interval_seconds", 10)
+            return max(MIN_INTERVAL_SECONDS, self.wcfg.get("burst_interval_seconds", 10))
         return base_seconds
 
 
@@ -275,7 +281,12 @@ def run_once(cfg, conditions=None, daylight=None):
 
 
 def loop(cfg):
-    base_interval = cfg["capture"]["interval_seconds"]
+    configured_interval = cfg["capture"]["interval_seconds"]
+    base_interval = max(MIN_INTERVAL_SECONDS, configured_interval)
+    if configured_interval < MIN_INTERVAL_SECONDS:
+        log.warning("capture.interval_seconds=%s is below the %ds minimum — using %ds "
+                    "(faster polling risks overloading the camera/NVR)",
+                    configured_interval, MIN_INTERVAL_SECONDS, MIN_INTERVAL_SECONDS)
     conditions = Conditions(cfg)
     daylight = DaylightWindow(cfg)
     if daylight.enabled and (cfg["capture"].get("start_time") or cfg["capture"].get("end_time")):

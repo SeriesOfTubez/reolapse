@@ -54,6 +54,9 @@ ACCENT_COLORS = {
 
 REQUIRED_SECTIONS = ("capture", "storage", "daily_video", "yearly")
 
+# Keep in sync with capture.py's MIN_INTERVAL_SECONDS — the floor on poll rate.
+MIN_INTERVAL_SECONDS = 10
+
 # --- Config-page authentication --------------------------------------------
 # A single optional passcode (no username) gates the Config page and its
 # write/scan endpoints. It's opt-in: with no passcode set, everything behaves
@@ -178,6 +181,15 @@ def validate_config(cfg):
     pw_hash = (cfg.get("webapp") or {}).get("config_passcode_hash")
     if pw_hash is not None and not isinstance(pw_hash, str):
         problems.append("webapp.config_passcode_hash must be a string (set it via the Config page, not by hand)")
+
+    # Minimum poll interval — faster than this risks overloading the camera/NVR.
+    for path, val in (("capture.interval_seconds", (cfg.get("capture") or {}).get("interval_seconds")),
+                      ("events.burst_interval_seconds", (cfg.get("events") or {}).get("burst_interval_seconds"))):
+        if isinstance(val, bool) or not isinstance(val, (int, float)):
+            continue
+        if val < MIN_INTERVAL_SECONDS:
+            problems.append(f"{path} must be at least {MIN_INTERVAL_SECONDS} seconds "
+                            "— faster polling can overload the camera/NVR")
 
     return problems
 

@@ -838,6 +838,7 @@ function numberField(path, opts) {
   const input = document.createElement("input");
   input.type = "number";
   if (opts.step) input.step = opts.step;
+  if (opts.min != null) input.min = opts.min;
   input.value = cfgGet(path, opts.default != null ? opts.default : 0);
   input.oninput = () => cfgSet(path, input.value === "" ? null : parseFloat(input.value));
   return input;
@@ -1360,8 +1361,9 @@ function buildCaptureSection() {
   sec.innerHTML = `<h3>Capture</h3>`;
   sec.appendChild(fieldRow("Interval (seconds)", "How often each camera grabs a snapshot. This is the biggest "
     + "lever on both video smoothness and disk use — 60s (one frame/minute) gives a ~48s daily video at 30fps; "
-    + "halving it doubles frame count, storage, and video length alike.",
-    numberField("capture.interval_seconds", {default: 60})));
+    + "halving it doubles frame count, storage, and video length alike. Minimum 10s — faster polling risks "
+    + "overloading the camera/NVR.",
+    numberField("capture.interval_seconds", {default: 60, min: 10})));
   sec.appendChild(fieldRow("Auto daylight window",
     "Instead of a fixed clock window, computes actual sunrise/sunset for your location each day and captures "
     + "only within it (plus the buffer below). Useful for cameras that switch to IR/black-and-white at night — "
@@ -1550,7 +1552,7 @@ function buildEventsSection() {
   sec.appendChild(fieldRow("Burst interval (seconds)", "Capture interval used instead of the normal "
     + "Capture > Interval (seconds) while any tag below is active — pick a value that evenly divides the "
     + "normal interval so timing stays predictable, e.g. 10s bursts within a 60s normal interval.",
-    numberField("events.burst_interval_seconds", {default: 10})));
+    numberField("events.burst_interval_seconds", {default: 10, min: 10})));
   sec.appendChild(fieldRow("Burst tags", "Which active tags switch capture to the faster Burst interval above "
     + "— e.g. capture more frequently during an actual storm so the event clip (see Event video clips below) "
     + "has enough footage.",

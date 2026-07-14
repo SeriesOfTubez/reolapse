@@ -54,7 +54,9 @@ cameras:
   #     tolerance: 10
 
 capture:
-  interval_seconds: 60        # one frame/minute -> ~48s daily video at 30 fps
+  interval_seconds: 60        # one frame/minute -> ~48s daily video at 30 fps.
+                              # Minimum 10s — faster polling can overload the
+                              # camera/NVR (clamped, and rejected by the web UI).
   start_time: ""              # e.g. "05:30" to skip night frames; empty = all day
   end_time: ""                # e.g. "21:30". Ignored if daylight_window.enabled
   timeout_seconds: 15
