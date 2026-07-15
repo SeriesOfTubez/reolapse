@@ -6,8 +6,10 @@ loaded first (without overriding real environment variables, so Docker /
 systemd values win). See config.example.yaml and .env.example.
 """
 
+import json
 import os
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -103,6 +105,25 @@ def load_config(config_path=None):
         root = (config_path.parent / root).resolve()
     cfg["storage"]["root"] = root
     return cfg
+
+
+def build_status_path(cfg) -> Path:
+    return cfg["storage"]["root"] / "build_status.json"
+
+
+def read_build_status(cfg, stale_seconds=3600) -> dict:
+    """Current video-build status, written by build_timelapse and read by the
+    web UI (they share the data dir). Returns {"state": "idle"} if nothing has
+    run, and treats a "running" status older than stale_seconds as idle so a
+    build killed mid-run (no clean exit) doesn't leave the UI stuck."""
+    try:
+        data = json.loads(build_status_path(cfg).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"state": "idle"}
+    if data.get("state") == "running" and \
+            time.time() - data.get("started_epoch", 0) > stale_seconds:
+        return {"state": "idle", "last": data.get("last")}
+    return data
 
 
 def snapshots_dir(cfg) -> Path:

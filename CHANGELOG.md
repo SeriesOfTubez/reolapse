@@ -17,6 +17,9 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (amd64 + arm64) are published automatically on each version tag.
 
 ### Added
+- **Build status indicator**: the web UI header shows "Building videos…" while a
+  daily build is running (the build writes `data/build_status.json`, the UI
+  polls it), and refreshes the video list when a build finishes.
 - **Night mode** (`capture.daylight_window.mode: night`): capture only the dark
   hours (the inverse of the daylight window). A night spans midnight and is
   saved as one continuous video — frames bucket by a noon-to-noon day — and the
