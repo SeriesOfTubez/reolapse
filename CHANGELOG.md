@@ -6,6 +6,13 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- Published container images are now **Trivy-scanned before being pushed** to
+  GHCR — the publish workflow builds amd64, fails on any fixable HIGH/CRITICAL
+  CVE, and only then builds and pushes the multi-arch image. Gates both release
+  and `:edge` publishes at publish time (in addition to the existing scan on
+  every push/PR to `main`).
+
 ### Added
 - Docker `:edge` image: every push to `main` now publishes a multi-arch
   `ghcr.io/seriesoftubez/reolapse:edge` image (latest development code), the

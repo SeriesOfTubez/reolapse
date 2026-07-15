@@ -47,6 +47,25 @@ jobs:
             type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
             type=edge,branch=main
 
+      # Build amd64 locally first and scan it, so a vulnerable image is never
+      # pushed. The multi-arch push below reuses this build's cache (same
+      # buildx builder), so arm64 is the only extra work. amd64 and arm64 share
+      # the same alpine + pip packages, so scanning amd64 covers the CVE surface
+      # — matching the image scan in security.yml.
+      - name: Build amd64 image for scanning
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: reolapse:scan
+
+      - name: Install Trivy
+        run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: Scan image (fail on fixable HIGH/CRITICAL)
+        run: trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 reolapse:scan
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
