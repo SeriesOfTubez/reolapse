@@ -175,9 +175,11 @@ docker compose pull && docker compose up -d   # runs the latest release image
 ```
 
 This pulls a pre-built multi-arch image (amd64 + arm64, so it works on a
-Raspberry Pi) from `ghcr.io/seriesoftubez/reolapse`. Pin a version with
-`REOLAPSE_TAG=0.2.0 docker compose up -d`, or **build from source** instead —
-handy for local changes or unreleased code:
+Raspberry Pi) from `ghcr.io/seriesoftubez/reolapse`. `REOLAPSE_TAG` selects
+which: `latest` (newest release, default), a pinned version like `0.2.0`, or
+`edge` (latest development code from `main`) — e.g.
+`REOLAPSE_TAG=edge docker compose pull && docker compose up -d`. Or **build
+from source** instead, handy for local changes or unreleased code:
 
 ```bash
 docker compose up -d --build

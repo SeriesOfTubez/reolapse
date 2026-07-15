@@ -6,6 +6,12 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- Docker `:edge` image: every push to `main` now publishes a multi-arch
+  `ghcr.io/seriesoftubez/reolapse:edge` image (latest development code), the
+  Docker parallel to `install.sh`'s `main` option. Run it with
+  `REOLAPSE_TAG=edge docker compose pull && docker compose up -d`.
+
 ## [0.2.0] - 2026-07-14
 
 ### Changed

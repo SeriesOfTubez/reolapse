@@ -1,11 +1,13 @@
-name: Publish release image
+name: Publish image
 
-# Build and push a multi-arch (amd64 + arm64) container image to GitHub
-# Container Registry whenever a version tag is pushed. amd64 covers x86 hosts;
-# arm64 covers Raspberry Pi and other ARM boards.
+# Build and push multi-arch (amd64 + arm64) container images to GHCR:
+#   * on a version tag  -> :x.y.z, :x.y, :latest   (stable releases)
+#   * on push to main   -> :edge                    (latest development code)
+# amd64 covers x86 hosts; arm64 covers Raspberry Pi and other ARM boards.
 
 on:
   push:
+    branches: [main]
     tags:
       - "v*"
 
@@ -36,10 +38,14 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
+          # No implicit "latest"; we add it explicitly for tags only, so a
+          # push to main only moves :edge and never clobbers :latest.
+          flavor: latest=false
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
+            type=edge,branch=main
 
       - name: Build and push
         uses: docker/build-push-action@v6
