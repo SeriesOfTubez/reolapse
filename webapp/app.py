@@ -27,7 +27,8 @@ import yaml
 from flask import Flask, abort, jsonify, request, send_from_directory
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from common import APP_VERSION, DEFAULT_CONFIG, load_config, tzinfo_for, videos_dir  # noqa: E402
+from common import (APP_VERSION, DEFAULT_CONFIG, load_config,  # noqa: E402
+                    read_build_status, tzinfo_for, videos_dir)
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -443,6 +444,12 @@ def create_app(cfg, config_path=None):
             "warnings": config_warnings(cfg),
             "version": APP_VERSION,
         })
+
+    @app.get("/api/build-status")
+    def build_status():
+        # Polled by the UI to show a "building videos…" indicator. Cheap: reads
+        # one small JSON file the build process writes.
+        return jsonify(read_build_status(state["cfg"]))
 
     @app.get("/api/storage")
     def storage():

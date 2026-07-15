@@ -12,6 +12,7 @@ Yearly video (rebuild any time; uses frames archived by the daily build):
 """
 
 import argparse
+import contextlib
 import datetime as dt
 import json
 import logging
@@ -23,12 +24,43 @@ import tempfile
 import time
 from pathlib import Path
 
-from common import (load_config, local_today, snapshots_dir, tzinfo_for,
-                    videos_dir, yearly_frames_dir)
+from common import (build_status_path, load_config, local_today, snapshots_dir,
+                    tzinfo_for, videos_dir, yearly_frames_dir)
 
 log = logging.getLogger("timelapse")
 
 MIN_FRAMES = 2
+
+
+@contextlib.contextmanager
+def build_status(cfg, kind, label):
+    """Mark a build running in data/build_status.json for the duration, then
+    idle, so the web UI can show a "building…" indicator. Best-effort — a
+    status-write failure never affects the build itself."""
+    path = build_status_path(cfg)
+    started = time.time()
+
+    def _write(payload):
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(payload), encoding="utf-8")
+        except OSError:
+            log.debug("could not write build status", exc_info=True)
+
+    _write({"state": "running", "kind": kind, "label": str(label),
+            "started_epoch": started,
+            "started_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+    ok = True
+    try:
+        yield
+    except BaseException:
+        ok = False
+        raise
+    finally:
+        _write({"state": "idle", "last": {
+            "kind": kind, "label": str(label), "ok": ok,
+            "seconds": round(time.time() - started, 1),
+            "finished_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}})
 
 
 def require_ffmpeg():
@@ -213,34 +245,35 @@ def cmd_daily(cfg, args):
         return
     date = resolve_date(args.date, tz)
     season = season_metadata(cfg, date)
-    for cam in selected_cameras(cfg, args.camera):
-        frames = day_frames(cfg, cam["name"], date)
-        if len(frames) < MIN_FRAMES:
-            log.warning("%s: only %d frame(s) for %s, skipping", cam["name"], len(frames), date)
-            continue
-        d = cfg["daily_video"]
-        out = videos_dir(cfg) / cam["name"] / "daily" / f"{date.isoformat()}.mp4"
-        build_video(
-            frames, out,
-            fps=d["fps"], crf=d["crf"],
-            deflicker_size=d.get("deflicker_size", 0),
-            max_height=d.get("max_height", 0),
-            preset=d.get("preset", "medium"),
-            metadata=season,
-        )
-        archive_yearly_frames(cfg, cam["name"], date, frames)
-
-    try:
-        build_event_videos(cfg, date, args.camera)
-    except Exception:
-        log.exception("event video build failed (daily videos are unaffected)")
-
-    try:
+    with build_status(cfg, "daily", date):
         for cam in selected_cameras(cfg, args.camera):
-            prune_daily_videos(cfg, cam["name"])
-        prune_event_videos(cfg)
-    except Exception:
-        log.exception("video retention pruning failed (build is unaffected)")
+            frames = day_frames(cfg, cam["name"], date)
+            if len(frames) < MIN_FRAMES:
+                log.warning("%s: only %d frame(s) for %s, skipping", cam["name"], len(frames), date)
+                continue
+            d = cfg["daily_video"]
+            out = videos_dir(cfg) / cam["name"] / "daily" / f"{date.isoformat()}.mp4"
+            build_video(
+                frames, out,
+                fps=d["fps"], crf=d["crf"],
+                deflicker_size=d.get("deflicker_size", 0),
+                max_height=d.get("max_height", 0),
+                preset=d.get("preset", "medium"),
+                metadata=season,
+            )
+            archive_yearly_frames(cfg, cam["name"], date, frames)
+
+        try:
+            build_event_videos(cfg, date, args.camera)
+        except Exception:
+            log.exception("event video build failed (daily videos are unaffected)")
+
+        try:
+            for cam in selected_cameras(cfg, args.camera):
+                prune_daily_videos(cfg, cam["name"])
+            prune_event_videos(cfg)
+        except Exception:
+            log.exception("video retention pruning failed (build is unaffected)")
 
     elapsed = time.time() - start
     log.info("daily build finished in %.1f min", elapsed / 60)

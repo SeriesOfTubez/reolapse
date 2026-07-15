@@ -80,6 +80,10 @@
     letter-spacing: 0.2px;
   }
   .brand .version { color: var(--text-3); font-size: var(--fs-xs); align-self: flex-end; margin-bottom: 3px; }
+  .build-indicator { display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--accent); white-space: nowrap; }
+  .build-indicator[hidden] { display: none; }
+  .build-spin { width: 10px; height: 10px; border: 2px solid var(--accent); border-top-color: transparent; border-radius: 50%; display: inline-block; animation: build-spin 0.8s linear infinite; }
+  @keyframes build-spin { to { transform: rotate(360deg); } }
 
   .pills { display: flex; gap: var(--space-2); flex-wrap: wrap; }
   .pill {
@@ -444,6 +448,7 @@
     <button class="pill" data-type="storage">Storage</button>
     <button class="pill" data-type="config">Config</button>
   </div>
+  <div class="build-indicator" id="build-indicator" hidden></div>
 </header>
 <div id="warnings"></div>
 <main>
@@ -1659,7 +1664,33 @@ function buildWebappSection() {
   return sec;
 }
 
+// Poll for video-build activity and show a header indicator while a build runs.
+let _lastBuildState = null;
+async function pollBuildStatus() {
+  const el = document.getElementById("build-indicator");
+  if (!el) return;
+  try {
+    const s = await (await fetch("/api/build-status")).json();
+    const running = s.state === "running";
+    if (running) {
+      const kind = s.kind ? s.kind + " " : "";
+      el.innerHTML = `<span class="build-spin"></span> Building ${kind}videos…`;
+      el.hidden = false;
+    } else {
+      el.hidden = true;
+    }
+    // A build just finished — refresh the video list so the new one shows up
+    // (skip while the user is on the Config page to avoid interrupting edits).
+    if (_lastBuildState === "running" && !running && state.type !== "config") {
+      load();
+    }
+    _lastBuildState = s.state;
+  } catch (e) { /* transient; try again next tick */ }
+}
+setInterval(pollBuildStatus, 8000);
+
 load();
+pollBuildStatus();
 </script>
 </body>
 </html>
