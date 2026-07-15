@@ -6,6 +6,12 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- `install.sh` now installs the **latest stable release** by default (was
+  `main`), and prompts between the release and `main` when run interactively.
+  Override with `REOLAPSE_REF=` (a tag or `main`); `REOLAPSE_YES=1` takes the
+  stable default non-interactively.
+
 ### Added
 - **Night mode** (`capture.daylight_window.mode: night`): capture only the dark
   hours (the inverse of the daylight window). A night spans midnight and is

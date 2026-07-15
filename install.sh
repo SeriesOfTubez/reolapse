@@ -15,9 +15,15 @@
 # user; the script calls sudo only where it must). It won't start capturing
 # until you've filled in config.yaml and .env — it prints the next steps.
 #
+# By default it installs the latest stable release; when run interactively it
+# offers a choice between that and `main` (latest development code).
+#
 # Env-var options:
 #   REOLAPSE_DIR=/opt/reolapse     where to install
-#   REOLAPSE_BRANCH=main           branch/tag to install
+#   REOLAPSE_REF=main              install this tag/branch instead (skips the
+#                                  prompt; e.g. REOLAPSE_REF=main for dev code,
+#                                  or REOLAPSE_REF=v0.1.0 to pin a release)
+#   REOLAPSE_YES=1                 non-interactive: take the default (stable)
 #   REOLAPSE_SKIP_SUDOERS=1        skip the Restart-button sudo rule
 #
 # Every line below lives in a function called from main() at the very end, so a
@@ -27,7 +33,7 @@ set -euo pipefail
 
 REPO_URL="https://github.com/SeriesOfTubez/reolapse.git"
 DEST="${REOLAPSE_DIR:-/opt/reolapse}"
-BRANCH="${REOLAPSE_BRANCH:-main}"
+REF=""  # resolved in main() after git is installed (latest release, or a choice)
 
 # The user/group the services will run as = whoever runs this script. Use
 # `id` rather than $USER/$GROUPS, which aren't reliably set under `curl | bash`
@@ -62,17 +68,47 @@ install_packages() {
   sudo apt-get install -y git ffmpeg python3 python3-venv
 }
 
+# Which ref to install: an explicit REOLAPSE_REF wins; otherwise the latest
+# release tag, offered against `main` via an interactive prompt (read from
+# /dev/tty so it works even through `curl | bash`). Non-interactive or no
+# releases yet -> sensible default.
+pick_ref() {
+  if [ -n "${REOLAPSE_REF:-}" ]; then echo "$REOLAPSE_REF"; return; fi
+  local latest
+  latest="$(git ls-remote --tags --refs "$REPO_URL" 'v*' 2>/dev/null \
+            | awk -F/ '{print $NF}' | sort -V | tail -1)"
+  if [ -z "$latest" ]; then echo "main"; return; fi          # no releases yet
+  if [ "${REOLAPSE_YES:-}" = "1" ] || [ ! -e /dev/tty ]; then
+    echo "$latest"; return                                    # non-interactive
+  fi
+  {
+    printf '\nInstall which version?\n'
+    printf '  1) %s   (latest stable release — recommended)\n' "$latest"
+    printf '  2) main  (latest development code)\n'
+    printf 'Choice [1]: '
+  } > /dev/tty
+  local choice=""
+  read -r choice < /dev/tty || true
+  case "$choice" in
+    2|main|dev|development) echo "main" ;;
+    *) echo "$latest" ;;
+  esac
+}
+
 fetch_source() {
   sudo mkdir -p "$DEST"
   sudo chown -R "$RUN_USER:$RUN_GROUP" "$DEST"
   if [ -d "$DEST/.git" ]; then
-    info "Updating existing checkout at $DEST…"
-    git -C "$DEST" fetch --depth 1 origin "$BRANCH"
-    git -C "$DEST" checkout -q "$BRANCH"
-    git -C "$DEST" reset --hard "origin/$BRANCH"
+    info "Updating existing checkout at $DEST to $REF…"
+    git -C "$DEST" fetch --tags --force origin
+    local rev
+    rev="$(git -C "$DEST" rev-parse -q --verify "origin/$REF" \
+           || git -C "$DEST" rev-parse -q --verify "$REF")" \
+      || { err "Could not resolve ref '$REF'."; exit 1; }
+    git -C "$DEST" reset --hard "$rev"
   elif [ -z "$(ls -A "$DEST" 2>/dev/null)" ]; then
-    info "Cloning ReoLapse ($BRANCH) into $DEST…"
-    git clone --branch "$BRANCH" --depth 1 "$REPO_URL" "$DEST"
+    info "Cloning ReoLapse ($REF) into $DEST…"
+    git clone --branch "$REF" --depth 1 "$REPO_URL" "$DEST"
   else
     err "$DEST exists, isn't a ReoLapse checkout, and isn't empty. Move it or set REOLAPSE_DIR."
     exit 1
@@ -173,6 +209,8 @@ main() {
   trap 'err "Install failed (line $LINENO). Nothing was started; fix the error and re-run."' ERR
   preflight
   install_packages
+  REF="$(pick_ref)"
+  info "Installing ref: $REF"
   fetch_source
   setup_venv
   setup_config
