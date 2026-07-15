@@ -171,12 +171,22 @@ cd reolapse
 cp config.example.yaml config.yaml   # edit: cameras, location, options
 cp .env.example .env                 # set REOLINK_PASSWORD
 
+docker compose pull && docker compose up -d   # runs the latest release image
+```
+
+This pulls a pre-built multi-arch image (amd64 + arm64, so it works on a
+Raspberry Pi) from `ghcr.io/seriesoftubez/reolapse`. Pin a version with
+`REOLAPSE_TAG=0.2.0 docker compose up -d`, or **build from source** instead —
+handy for local changes or unreleased code:
+
+```bash
 docker compose up -d --build
 ```
 
 Open <http://localhost:8080>. Three services start: `capture` (continuous),
 `scheduler` (nightly/weekly builds), and `web`. Keep `storage.root: ./data` in
-`config.yaml` so data lands on the Docker volume.
+`config.yaml` so data lands on the Docker volume. To upgrade later, see
+[Upgrading](#upgrading).
 
 ## Install on a Linux VM (systemd)
 
@@ -305,10 +315,13 @@ with `REOLAPSE_REF=main`.
 **Docker:**
 
 ```bash
-cd /path/to/reolapse && git pull && docker compose up -d --build
+cd /path/to/reolapse
+git pull                                # refresh compose file + docs
+docker compose pull && docker compose up -d   # or: up -d --build to build from source
 ```
 
-The `data` volume survives the rebuild.
+The `data` volume survives across both. (`git pull` just updates the compose
+file; the actual app comes from the pulled image or a local build.)
 
 Releases are tagged and listed on the
 [Releases page](https://github.com/SeriesOfTubez/reolapse/releases). The running

@@ -11,6 +11,10 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `main`), and prompts between the release and `main` when run interactively.
   Override with `REOLAPSE_REF=` (a tag or `main`); `REOLAPSE_YES=1` takes the
   stable default non-interactively.
+- Docker: `docker compose` now runs a **pre-built multi-arch release image**
+  from `ghcr.io/seriesoftubez/reolapse` by default (`docker compose pull`);
+  building from source (`up -d --build`) still works. Release images
+  (amd64 + arm64) are published automatically on each version tag.
 
 ### Added
 - **Night mode** (`capture.daylight_window.mode: night`): capture only the dark
