@@ -205,11 +205,17 @@ less install.sh
 bash install.sh
 ```
 
-Run it as a normal user with sudo — **not** as root. It deliberately stops short
-of capturing: you still fill in `config.yaml` and `.env` (or use the web UI's
-Config tab), then `sudo systemctl start reolapse-capture.service` — the script
-prints the exact next steps. Env-var options: `REOLAPSE_DIR=` (install location),
-`REOLAPSE_BRANCH=`, `REOLAPSE_SKIP_SUDOERS=1`.
+By default it installs the **latest stable release**; run interactively it asks
+whether you'd rather have `main` (latest development code). Run it as a normal
+user with sudo — **not** as root. It deliberately stops short of capturing: you
+still fill in `config.yaml` and `.env` (or use the web UI's Config tab), then
+`sudo systemctl start reolapse-capture.service` — the script prints the exact
+next steps.
+
+Env-var options: `REOLAPSE_DIR=` (install location), `REOLAPSE_REF=` (a tag or
+`main` to skip the prompt — e.g. `REOLAPSE_REF=main` for dev code, or
+`REOLAPSE_REF=v0.1.0` to pin a release), `REOLAPSE_YES=1` (non-interactive,
+takes the stable default), `REOLAPSE_SKIP_SUDOERS=1`.
 
 ### Manual install
 
