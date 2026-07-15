@@ -6,6 +6,8 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-14
+
 ### Changed
 - `install.sh` now installs the **latest stable release** by default (was
   `main`), and prompts between the release and `main` when run interactively.
@@ -59,5 +61,6 @@ Initial public release.
 - Running version reported in the web UI header, the API, service logs, and the
   Docker image.
 
-[Unreleased]: https://github.com/SeriesOfTubez/reolapse/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/SeriesOfTubez/reolapse/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/SeriesOfTubez/reolapse/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/SeriesOfTubez/reolapse/releases/tag/v0.1.0
