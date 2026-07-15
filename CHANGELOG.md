@@ -31,6 +31,8 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   latitude-longitude via Open-Meteo (cached to `data/timezone.txt`). Capture
   day boundaries and sunrise/sunset now use that zone instead of the host
   system clock, so a misconfigured host can't split days at the wrong hour.
+  The Config page shows the auto-detected zone and lets you override it from a
+  dropdown of all IANA time zones.
 
 ## [0.1.0] - 2026-07-14
 
