@@ -4,6 +4,12 @@
 #
 #   cp config.example.yaml config.yaml   # then edit
 #   cp .env.example .env                 # then set REOLINK_PASSWORD
+#
+# Run a published release image (recommended):
+#   docker compose pull && docker compose up -d
+#   # pin a version with:  REOLAPSE_TAG=0.2.0 docker compose up -d
+#
+# …or build from source instead (for local changes / unreleased code):
 #   docker compose up -d --build
 #
 # In config.yaml keep `storage: root: ./data` so data lands on the volume.
@@ -11,7 +17,7 @@
 services:
   capture:
     build: .
-    image: reolapse:latest
+    image: ghcr.io/seriesoftubez/reolapse:${REOLAPSE_TAG:-latest}
     command: python capture.py --loop
     env_file: .env
     volumes:
@@ -23,7 +29,7 @@ services:
 
   scheduler:
     build: .
-    image: reolapse:latest
+    image: ghcr.io/seriesoftubez/reolapse:${REOLAPSE_TAG:-latest}
     command: python scheduler.py
     env_file: .env
     volumes:
@@ -37,7 +43,7 @@ services:
 
   web:
     build: .
-    image: reolapse:latest
+    image: ghcr.io/seriesoftubez/reolapse:${REOLAPSE_TAG:-latest}
     command: python webapp/app.py
     env_file: .env
     ports:
