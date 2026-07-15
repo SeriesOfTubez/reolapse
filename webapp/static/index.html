@@ -354,6 +354,15 @@
   .cfg-row input[type="checkbox"] { flex-shrink: 0; margin-top: 2px; }
   .cfg-row.cfg-row-col input[type="text"],
   .cfg-row.cfg-row-col select { width: 100%; max-width: 100%; }
+  .tz-field { display: flex; flex-direction: column; gap: var(--space-2); }
+  .tz-manual-toggle { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); cursor: pointer; }
+  .tz-manual-toggle input { width: 16px; height: 16px; accent-color: var(--accent); }
+  .tz-field select, .tz-field input[type="text"] {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    color: var(--text-1); font: var(--fw-regular) var(--fs-sm)/1 var(--font-sans);
+    padding: var(--space-1) var(--space-2); width: 100%; max-width: 340px;
+  }
+  .tz-field input[disabled] { color: var(--text-3); cursor: not-allowed; }
   .cfg-row input:focus, .cfg-row select:focus { outline: 1px solid var(--accent); }
   .cfg-row input[readonly] { color: var(--text-3); cursor: not-allowed; }
   .cfg-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
@@ -739,6 +748,7 @@ async function renderConfig() {
   state.configData = data.config;
   state.accentColors = data.accent_colors || Object.keys(ACCENT_HEX);
   state.passwordVars = data.password_vars || [];
+  state.detectedTimezone = data.detected_timezone || null;
   renderConfigForm(area);
 }
 
@@ -880,6 +890,67 @@ function checkboxField(path, opts) {
   input.checked = !!cfgGet(path, !!opts.default);
   input.onchange = () => cfgSet(path, input.checked);
   return input;
+}
+
+function tzOptions() {
+  try { if (Intl.supportedValuesOf) return Intl.supportedValuesOf("timeZone"); } catch (e) {}
+  return ["UTC", "America/New_York", "America/Chicago", "America/Denver",
+          "America/Los_Angeles", "America/Anchorage", "Pacific/Honolulu",
+          "America/Toronto", "America/Sao_Paulo", "Europe/London", "Europe/Paris",
+          "Europe/Berlin", "Europe/Moscow", "Asia/Kolkata", "Asia/Shanghai",
+          "Asia/Tokyo", "Australia/Sydney"];
+}
+
+// Auto by default (a disabled field showing the detected zone); tick to set a
+// zone manually from a dropdown. Writes capture.timezone: "" = auto.
+function timezoneField() {
+  const wrap = document.createElement("div");
+  wrap.className = "tz-field";
+  const detected = state.detectedTimezone;
+
+  const toggle = document.createElement("label");
+  toggle.className = "tz-manual-toggle";
+  const cb = document.createElement("input");
+  cb.type = "checkbox";
+  cb.checked = !!cfgGet("capture.timezone", "");
+  toggle.appendChild(cb);
+  toggle.appendChild(document.createTextNode(" Set manually"));
+
+  const control = document.createElement("div");
+  control.className = "tz-control";
+
+  function render() {
+    control.innerHTML = "";
+    if (cb.checked) {
+      const preselect = cfgGet("capture.timezone", "") || detected || "UTC";
+      const zones = tzOptions().slice();
+      if (!zones.includes(preselect)) zones.unshift(preselect);
+      const sel = document.createElement("select");
+      zones.forEach(z => {
+        const o = document.createElement("option");
+        o.value = z; o.textContent = z;
+        if (z === preselect) o.selected = true;
+        sel.appendChild(o);
+      });
+      sel.onchange = () => cfgSet("capture.timezone", sel.value);
+      cfgSet("capture.timezone", preselect);
+      control.appendChild(sel);
+    } else {
+      cfgSet("capture.timezone", "");
+      const disp = document.createElement("input");
+      disp.type = "text";
+      disp.disabled = true;
+      disp.value = detected ? `${detected}  (auto-detected)`
+                            : "host system clock  (no location set)";
+      control.appendChild(disp);
+    }
+  }
+  cb.onchange = render;
+  render();
+
+  wrap.appendChild(toggle);
+  wrap.appendChild(control);
+  return wrap;
 }
 
 function extractVarName(value) {
@@ -1370,11 +1441,10 @@ function buildCaptureSection() {
   const sec = document.createElement("div");
   sec.className = "cfg-section";
   sec.innerHTML = `<h3>Capture</h3>`;
-  sec.appendChild(fieldRow("Time zone", "IANA time zone name (e.g. \"America/Chicago\") used for capture "
-    + "timing and day boundaries. Leave blank to auto-detect from your location (ZIP or latitude/longitude in "
-    + "Weather & astronomy below), falling back to the host machine's clock. Setting this — or a location — keeps "
-    + "your days from splitting at the wrong hour if the host clock is misconfigured.",
-    textField("capture.timezone", {placeholder: "auto-detect from location"})));
+  sec.appendChild(fieldRow("Time zone", "Used for capture timing and day boundaries. Auto-detected from your "
+    + "location (ZIP or latitude/longitude in Weather & astronomy below) by default. Tick \"Set manually\" to pick "
+    + "a zone yourself — handy if auto-detection is wrong or you haven't set a location.",
+    timezoneField(), true));
   sec.appendChild(fieldRow("Interval (seconds)", "How often each camera grabs a snapshot. This is the biggest "
     + "lever on both video smoothness and disk use — 60s (one frame/minute) gives a ~48s daily video at 30fps; "
     + "halving it doubles frame count, storage, and video length alike. Minimum 10s — faster polling risks "

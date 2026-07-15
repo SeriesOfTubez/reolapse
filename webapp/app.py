@@ -474,11 +474,19 @@ def create_app(cfg, config_path=None):
         # dedicated /api/auth/passcode endpoint, not the config editor).
         if isinstance(parsed.get("webapp"), dict):
             parsed["webapp"].pop("config_passcode_hash", None)
+        # The zone auto-detected from the configured location, shown in the UI's
+        # timezone field when it's left on auto. Best-effort (cached).
+        try:
+            import events
+            detected_tz = events.detect_timezone(state["cfg"])
+        except Exception:
+            detected_tz = None
         return jsonify({
             "config": parsed,
             "path": str(state["path"]),
             "accent_colors": sorted(ACCENT_COLORS),
             "password_vars": available_password_vars(),
+            "detected_timezone": detected_tz,
         })
 
     @app.post("/api/config")

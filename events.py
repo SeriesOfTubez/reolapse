@@ -289,20 +289,24 @@ _TZ_CACHE = {}
 
 
 def resolve_timezone(cfg):
-    """IANA timezone name for capture timing (e.g. 'America/Chicago'), or None.
+    """IANA timezone name used for capture timing (e.g. 'America/Chicago').
 
-    Priority: an explicit ``capture.timezone``; else auto-detected from the
-    configured location (``events.zip`` / ``latitude``+``longitude``) via
-    Open-Meteo's ``timezone=auto`` and cached to ``<storage.root>/timezone.txt``
-    so it survives offline restarts; else None (caller uses the host timezone).
-
-    Everything is best-effort — any failure returns None rather than raising, so
-    capture never breaks over a timezone lookup.
+    An explicit ``capture.timezone`` wins; otherwise the auto-detected zone
+    (see detect_timezone); else None (caller uses the host timezone).
     """
     explicit = (cfg.get("capture") or {}).get("timezone")
     if explicit:
         return str(explicit).strip()
+    return detect_timezone(cfg)
 
+
+def detect_timezone(cfg):
+    """Auto-detect the IANA timezone from the configured location
+    (``events.zip`` / ``latitude``+``longitude``) via Open-Meteo's
+    ``timezone=auto``, cached to ``<storage.root>/timezone.txt`` so it survives
+    offline restarts. Ignores any explicit ``capture.timezone``. Returns None if
+    no location is set or the lookup fails — all best-effort, never raises.
+    """
     try:
         lat, lon = resolve_location(cfg.get("events") or {})
     except Exception:
