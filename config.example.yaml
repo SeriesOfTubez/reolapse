@@ -53,6 +53,19 @@ cameras:
   #     # tilt: 79
   #     tolerance: 10
 
+  # Example: a camera with per-camera daylight window settings
+  # - name: wildlife-night
+  #   host: 192.168.1.52
+  #   channel: 0
+  #   username: admin
+  #   password: "${REOLINK_PASSWORD}"
+  #   https: true
+  #   verify_ssl: false
+  #   daylight_window:          # per-camera daylight window settings
+  #     enabled: true           # override global settings
+  #     mode: night             # capture only during dark hours
+  #     buffer_minutes: 30      # trim 30 minutes of twilight from each end
+
 capture:
   timezone: ""                # IANA name (e.g. "America/Chicago") for capture
                               # timing and day boundaries. Empty = auto-detect
@@ -130,7 +143,8 @@ yearly:
 #
 #   weather_enabled  Polls NWS alerts (US-only) + Open-Meteo for storm/snow/
 #                    rain, triggers burst capture. REQUIRES a location: set
-#                    `zip`, or `latitude`/`longitude` (required outside the
+#                    `zip`, or `latitude`/longitude
+#                    (required outside the
 #                    US). If enabled without one, storm/snow tagging is
 #                    silently skipped and a warning is logged — the web UI
 #                    also flags this.
