@@ -1283,6 +1283,58 @@ function renderCameraCards(list) {
       + "which would otherwise always fail this check.",
       checkboxField(`cameras.${i}.verify_ssl`, {default: false})));
 
+    // Add per-camera daylight window settings
+    const dlEnabled = cfgGet(`cameras.${i}.daylight_window.enabled`, false);
+    const dlMode = cfgGet(`cameras.${i}.daylight_window.mode`, "day");
+    const dlBuffer = cfgGet(`cameras.${i}.daylight_window.buffer_minutes`, 0);
+    
+    const dlCard = document.createElement("div");
+    dlCard.className = "cfg-section";
+    dlCard.style.marginTop = "12px";
+    dlCard.style.padding = "12px";
+    dlCard.style.border = "1px solid var(--border)";
+    dlCard.style.borderRadius = "var(--radius-sm)";
+    dlCard.innerHTML = `<h3 style="margin: 0 0 8px 0; font-size: var(--fs-sm);">Daylight Window Settings</h3>
+      <div class="cfg-hint-block" style="margin-bottom: 8px;">
+        Override global daylight window settings for this camera. These settings will be used instead of 
+        the global capture.daylight_window settings when they are enabled.
+      </div>`;
+    
+    dlCard.appendChild(fieldRow("Enable per-camera daylight window", 
+      "Override global daylight window settings for this camera.",
+      checkboxField(`cameras.${i}.daylight_window.enabled`, {default: false})));
+    
+    const modeRow = fieldRow("Window mode",
+      "With Auto daylight window on: \"day\" captures during daylight (the default); \"night\" captures the "
+      + "opposite — the dark hours only. A night spans midnight and is saved as one continuous video (built "
+      + "automatically ~5 min after the dawn window closes, so you get night-only timelapses that aren't cut off "
+      + "at midnight.",
+      selectField(`cameras.${i}.daylight_window.mode`, ["day", "night"], {default: "day"}));
+    modeRow.style.display = dlEnabled ? "flex" : "none";
+    dlCard.appendChild(modeRow);
+    
+    const bufferRow = fieldRow("Daylight buffer (minutes)",
+      "In day mode, widens the window by this many minutes each side (start before sunrise, stop after sunset). "
+      + "In night mode it's the inverse — trims that much twilight off each end of the night. Only matters when "
+      + "Auto daylight window above is on.",
+      numberField(`cameras.${i}.daylight_window.buffer_minutes`, {default: 0}));
+    bufferRow.style.display = dlEnabled ? "flex" : "none";
+    dlCard.appendChild(bufferRow);
+    
+    // Add event listeners to show/hide mode and buffer fields when enabled changes
+    const enableCheckbox = dlCard.querySelector(`input[type="checkbox"]`);
+    const modeField = dlCard.querySelector(`select[name="cameras.${i}.daylight_window.mode"]`);
+    const bufferField = dlCard.querySelector(`input[name="cameras.${i}.daylight_window.buffer_minutes"]`);
+    
+    if (enableCheckbox) {
+      enableCheckbox.addEventListener('change', function() {
+        modeRow.style.display = this.checked ? "flex" : "none";
+        bufferRow.style.display = this.checked ? "flex" : "none";
+      });
+    }
+    
+    card.appendChild(dlCard);
+
     if (cam.ptz_home) {
       const hint = document.createElement("div");
       hint.className = "cfg-hint";
@@ -1459,7 +1511,7 @@ function buildCaptureSection() {
   sec.appendChild(fieldRow("Window mode",
     "With Auto daylight window on: \"day\" captures during daylight (the default); \"night\" captures the "
     + "opposite — the dark hours only. A night spans midnight and is saved as one continuous video (built "
-    + "automatically ~5 min after the dawn window closes), so you get night-only timelapses that aren't cut off "
+    + "automatically ~5 min after the dawn window closes, so you get night-only timelapses that aren't cut off "
     + "at midnight.",
     selectField("capture.daylight_window.mode", ["day", "night"], {default: "day"})));
   sec.appendChild(fieldRow("Daylight buffer (minutes)",
@@ -1578,7 +1630,7 @@ function buildEventsSection() {
     checkboxField("events.weather_enabled", {default: false})));
   sec.appendChild(fieldRow("Moon event tagging", "Computes real moon events locally (via Skyfield): full, "
     + "blue, and harvest moon, plus blood moon (total lunar eclipse) and partial lunar eclipse. No location "
-    + "required — moon phase is the same instant everywhere on Earth; a location is only used to skip tagging "
+    + "required — moon phase is the same instant everywhere on Earth. A location, if set, is used to skip tagging "
     + "an eclipse when the Moon isn't actually above your horizon. First use downloads a ~17 MB ephemeris file.",
     checkboxField("events.lunar_enabled", {default: false})));
   sec.appendChild(fieldRow("Season tagging", "Tags every frame and video with the current astronomical season "

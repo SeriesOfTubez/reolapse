@@ -23,7 +23,7 @@ import urllib3
 
 import events
 from common import (APP_ROOT, APP_VERSION, load_config, local_now, local_today,
-                    snapshots_dir, tzinfo_for, videos_dir)
+                    snapshots_dir, tzinfo_for, videos_dir, effective_daylight_window)
 
 # A "night" spans midnight, so night frames are bucketed by a noon-to-noon
 # logical day (shift the timestamp back 12h). That makes one evening + the
@@ -286,6 +286,22 @@ def run_once(cfg, conditions=None, daylight=None, tz=None):
     tags = sorted(conditions.tags) if conditions else []
     out_root = snapshots_dir(cfg)
     for cam in cfg["cameras"]:
+        # Get per-camera daylight window settings, falling back to global
+        cam_dl_cfg = cam.get("daylight_window") or {}
+        global_dl_cfg = cfg["capture"].get("daylight_window") or {}
+        effective_dl_cfg = effective_daylight_window(global_dl_cfg, cam_dl_cfg)
+        
+        # Create a DaylightWindow instance for this camera if needed
+        cam_daylight = None
+        if effective_dl_cfg.get("enabled"):
+            cam_daylight = type('DaylightWindow', (), {
+                'enabled': bool(effective_dl_cfg.get("enabled")),
+                'mode': (effective_dl_cfg.get("mode") or "day").strip().lower(),
+                'window_for': lambda today, cfg=effective_dl_cfg, events_cfg=cfg.get("events") or {}, 
+                                 ephem_dir=cfg["storage"]["root"] / "ephemeris", tz=tz: 
+                    _compute_window(today, cfg, events_cfg, ephem_dir, tz)
+            })()
+        
         if not cam.get("verify_ssl", True):
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         quarantine = not ptz_at_home(cam, capture_cfg)
@@ -304,6 +320,24 @@ def run_once(cfg, conditions=None, daylight=None, tz=None):
                     time.sleep(2)
                 else:
                     log.error("%s: snapshot failed: %s", cam["name"], msg)
+
+
+def _compute_window(today, dl_cfg, events_cfg, ephem_dir, tz):
+    """Compute sunrise/sunset window for a given day and config."""
+    buffer_min = dl_cfg.get("buffer_minutes", 0)
+    try:
+        lat, lon = events.resolve_location(events_cfg)
+        sunrise, sunset = events.sunrise_sunset(today, lat, lon, ephem_dir, tz)
+    except Exception as exc:
+        log.warning("daylight window unavailable, capturing all day: %s", exc)
+        return None, None
+    if sunrise:
+        sunrise = (dt.datetime.combine(today, sunrise)
+                   - dt.timedelta(minutes=buffer_min)).time()
+    if sunset:
+        sunset = (dt.datetime.combine(today, sunset)
+                  + dt.timedelta(minutes=buffer_min)).time()
+    return sunrise, sunset
 
 
 def trigger_night_build(config_path, date):
