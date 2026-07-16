@@ -107,6 +107,28 @@ def load_config(config_path=None):
     return cfg
 
 
+def effective_daylight_window(global_dl, camera_dl):
+    """Merge global and camera-specific daylight window settings.
+    
+    Camera settings override global ones when present.
+    """
+    if not camera_dl:
+        return global_dl
+    
+    # Start with global settings as defaults
+    effective = global_dl.copy() if global_dl else {}
+    
+    # Override with camera-specific settings
+    if camera_dl.get("enabled") is not None:
+        effective["enabled"] = camera_dl["enabled"]
+    if camera_dl.get("mode") is not None:
+        effective["mode"] = camera_dl["mode"]
+    if camera_dl.get("buffer_minutes") is not None:
+        effective["buffer_minutes"] = camera_dl["buffer_minutes"]
+        
+    return effective
+
+
 def build_status_path(cfg) -> Path:
     return cfg["storage"]["root"] / "build_status.json"
 
