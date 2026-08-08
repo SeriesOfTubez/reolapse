@@ -63,6 +63,24 @@ class Conditions:
         self.tags = {}
         self._known = None
         self._last_poll = None
+        # Last successful result per source, so a failed poll can carry the
+        # previous answer forward instead of reading as all-clear.
+        self._last_good = {}
+
+    def _stale_grace(self):
+        """How long a failed source keeps reporting its last known tags.
+
+        Defaults to three polls: long enough to ride out the API timeouts and
+        502/503s these free services hand out regularly, short enough that a
+        genuinely ended storm clears promptly.
+        """
+        configured = self.wcfg.get("stale_grace_minutes")
+        if configured is not None:
+            try:
+                return max(0.0, float(configured)) * 60
+            except (TypeError, ValueError):
+                pass
+        return self.wcfg.get("poll_minutes", 5) * 60 * 3
 
     def refresh(self):
         if not self.enabled:
@@ -72,7 +90,31 @@ class Conditions:
         if self._last_poll and (now - self._last_poll).total_seconds() < poll_secs:
             return
         self._last_poll = now
-        self.tags = events.get_active_tags(self.wcfg, self.ephem_dir)
+
+        results = events.poll_sources(self.wcfg, self.ephem_dir)
+        grace = self._stale_grace()
+        tags = {}
+        for name, result in results.items():
+            if result["ok"]:
+                self._last_good[name] = (now, result["tags"])
+                source_tags = result["tags"]
+            else:
+                # A source we couldn't reach tells us nothing — hold its last
+                # answer briefly rather than letting a blip cancel a burst.
+                when, previous = self._last_good.get(name, (None, {}))
+                if when is None or (now - when).total_seconds() > grace or not previous:
+                    continue
+                source_tags = previous
+                log.info("%s unreachable; holding %s for up to %.0f more min",
+                         name, sorted(previous) or "no tags",
+                         (grace - (now - when).total_seconds()) / 60)
+            for tag, reason in source_tags.items():
+                tags.setdefault(tag, reason)
+
+        for tag in self.wcfg.get("force_tags") or []:  # testing hook
+            tags.setdefault(tag, "forced via config")
+        self.tags = tags
+
         if set(self.tags) != self._known:
             self._known = set(self.tags)
             log.info("conditions now: %s", sorted(self.tags) or "clear")

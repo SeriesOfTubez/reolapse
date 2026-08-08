@@ -208,6 +208,23 @@ events:
   burst_interval_seconds: 10  # use a value that divides interval_seconds
   # force_tags: [storm]       # testing hook: pretend these are always active
 
+  # Storm detection thresholds. Open-Meteo's weather code reports thunderstorm
+  # (WMO 95/96/99) far less often than thunderstorms happen — a storm downpour
+  # usually comes back as "rain showers" — so `storm` is also inferred from the
+  # physical fields. Raise these to tag fewer storms, lower to tag more.
+  storm_cape_min: 800         # J/kg of convective energy that, TOGETHER with
+                              # falling rain, counts as a storm. CAPE alone is
+                              # only potential — it can sit above 2000 under a
+                              # clear sky — so it never tags on its own.
+  storm_precip_mm: 0.1        # mm in the reporting interval = "actually raining"
+  storm_gust_kmh: 60          # gusts this strong tag a storm on their own, wet
+                              # or dry — that's a squall/gust front worth having
+  stale_grace_minutes: 15     # if a weather API times out (these free services
+                              # hand out 502/503s regularly), keep its last known
+                              # tags this long instead of reading the outage as
+                              # "all clear". Stops a blip ending a burst
+                              # mid-storm. Default: 3 polls.
+
 events_video:
   tags: [storm, snow]         # render a clip per active span of these tags
   min_frames: 30

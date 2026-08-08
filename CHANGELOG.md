@@ -40,6 +40,26 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `REOLAPSE_TAG=edge docker compose pull && docker compose up -d`.
 
 ### Fixed
+- **Storms were almost never tagged**, so storm bursts and event clips rarely
+  fired at all. `storm` relied on Open-Meteo's `weather_code` returning WMO
+  95/96/99, which it does in only a minority of real thunderstorms — a storm
+  downpour normally reports as *rain showers*. A real deployment ran 19 days
+  through repeated storms and logged **zero** storm tags, hence zero event
+  videos. `storm` is now corroborated from several signals: NWS alerts (as
+  before), **observed** conditions at the nearest NWS station, the WMO code,
+  rain combined with high CAPE, and strong wind gusts. CAPE never tags on its
+  own — it's convective *potential* and can be high under a clear sky — so it
+  only counts alongside actual falling rain. Thresholds are tunable
+  (`events.storm_cape_min`, `storm_precip_mm`, `storm_gust_kmh`) and exposed on
+  the Config page under **Storm detection tuning**. Replayed against 92 days of
+  real hourly weather: storm days detected went from 5 to 17, with 5 dry-hour
+  triggers out of 1588 (all genuine gust fronts).
+- **A weather API outage no longer cancels an in-progress storm burst.** Every
+  source failing produced an empty tag set, indistinguishable from clear skies,
+  so a single timeout — and these free services time out regularly — ended a
+  burst mid-storm and truncated the event clip. A source that can't be reached
+  now keeps its last known tags for `events.stale_grace_minutes` (default: three
+  polls) instead of reading as all-clear.
 - `upgrade.sh` with an explicit **`REOLAPSE_REF` pointing at a branch** upgraded
   to the wrong code, silently. The ref was used verbatim, but the preceding
   fetch only updates remote-tracking refs — so `REOLAPSE_REF=main` reset to the

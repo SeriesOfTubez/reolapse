@@ -210,6 +210,18 @@ def validate_config(cfg):
         problems.append(f"capture.timezone {tzname!r} is not a valid IANA time zone "
                         '(e.g. "America/Chicago") — leave it blank to auto-detect')
 
+    # Storm-detection thresholds: any non-negative number. A bad value here
+    # would otherwise fail open (fall back to the default) and quietly not do
+    # what the user asked.
+    for key in ("storm_cape_min", "storm_precip_mm", "storm_gust_kmh", "stale_grace_minutes"):
+        val = (cfg.get("events") or {}).get(key)
+        if val is None:
+            continue
+        if isinstance(val, bool) or not isinstance(val, (int, float)):
+            problems.append(f"events.{key} must be a number")
+        elif val < 0:
+            problems.append(f"events.{key} must not be negative")
+
     # Minimum poll interval — faster than this risks overloading the camera/NVR.
     for path, val in (("capture.interval_seconds", (cfg.get("capture") or {}).get("interval_seconds")),
                       ("events.burst_interval_seconds", (cfg.get("events") or {}).get("burst_interval_seconds"))):
