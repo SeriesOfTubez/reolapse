@@ -73,6 +73,21 @@ cameras:
   #                           # midnight and builds as ONE video at dawn
   #     buffer_minutes: 30    # trim 30 min of twilight off each end
 
+  # Example: a camera the weather isn't visible from — indoors, a doorway, a
+  # tight framing. events_enabled: false makes it ignore events entirely: it
+  # holds its own interval instead of speeding up to burst_interval_seconds
+  # during a storm, and no event clips are built from its frames. Its frames
+  # are still tagged, so the metadata stays complete. Defaults to true; leave
+  # the key out for a camera that should participate normally.
+  # - name: front-door
+  #   host: 192.168.1.50
+  #   channel: 3
+  #   username: admin
+  #   password: "${REOLINK_PASSWORD}"
+  #   https: true
+  #   verify_ssl: false
+  #   events_enabled: false
+
 capture:
   timezone: ""                # IANA name (e.g. "America/Chicago") for capture
                               # timing and day boundaries. Empty = auto-detect

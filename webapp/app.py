@@ -185,6 +185,9 @@ def validate_config(cfg):
                     problems.append(
                         f"cameras[{i}].interval_seconds must be at least {MIN_INTERVAL_SECONDS} "
                         "(faster polling risks overloading the camera/NVR)")
+            cam_events = cam.get("events_enabled")
+            if cam_events is not None and not isinstance(cam_events, bool):
+                problems.append(f"cameras[{i}].events_enabled must be true or false")
 
     for section in REQUIRED_SECTIONS:
         if not isinstance(cfg.get(section), dict):
