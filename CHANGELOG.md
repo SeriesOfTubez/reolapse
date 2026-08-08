@@ -29,6 +29,16 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Docker parallel to `install.sh`'s `main` option. Run it with
   `REOLAPSE_TAG=edge docker compose pull && docker compose up -d`.
 
+### Fixed
+- `upgrade.sh` with an explicit **`REOLAPSE_REF` pointing at a branch** upgraded
+  to the wrong code, silently. The ref was used verbatim, but the preceding
+  fetch only updates remote-tracking refs — so `REOLAPSE_REF=main` reset to the
+  machine's *local* `main`, which is stale on a normal install (it resolved to
+  the **v0.1.0** commit on a box last upgraded at v0.1.0) and doesn't exist at
+  all on the shallow single-branch clone `install.sh` creates, where the upgrade
+  failed outright. The ref is now fetched by name first, which works for
+  branches, tags, and SHAs alike. Tag upgrades were unaffected.
+
 ## [0.2.0] - 2026-07-14
 
 ### Changed
