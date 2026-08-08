@@ -1728,6 +1728,38 @@ function buildEventsSection() {
     + "has enough footage.",
     tagCheckGroup("events.burst_tags", ["storm", "snow", "rain"]), true));
 
+  const tuning = document.createElement("div");
+  tuning.className = "cfg-subsection";
+  const th = document.createElement("h4");
+  th.textContent = "Storm detection tuning";
+  tuning.appendChild(th);
+  const intro = document.createElement("div");
+  intro.className = "cfg-hint-block";
+  intro.textContent = "Weather services report \"thunderstorm\" far less often than thunderstorms actually "
+    + "happen — a storm downpour usually comes back labelled as rain showers. So a storm is also inferred "
+    + "from the physical measurements below. Raise these to tag fewer storms, lower them to tag more.";
+  tuning.appendChild(intro);
+
+  tuning.appendChild(fieldRow("Convective energy (CAPE, J/kg)",
+    "How much instability in the atmosphere counts as storm-like, when rain is ALSO falling. CAPE on its own "
+    + "is only potential — it can sit above 2000 under a completely clear sky — so it never tags a storm by "
+    + "itself. Around 800 is ordinary thunderstorm territory; 2500+ is a severe setup.",
+    numberField("events.storm_cape_min", {default: 800, min: 0})));
+  tuning.appendChild(fieldRow("Minimum rainfall (mm)",
+    "How much precipitation counts as \"actually raining\" for the check above. The default is deliberately "
+    + "tiny — it exists to rule out a dry but unstable sky, not to measure how hard it's raining.",
+    numberField("events.storm_precip_mm", {default: 0.1, min: 0, step: "0.1"})));
+  tuning.appendChild(fieldRow("Wind gusts (km/h)",
+    "Gusts this strong tag a storm on their own, rain or no rain — that's a squall or gust front, which is "
+    + "usually the most dramatic thing a timelapse can catch. 60 km/h is roughly 37 mph.",
+    numberField("events.storm_gust_kmh", {default: 60, min: 0})));
+  tuning.appendChild(fieldRow("Outage grace (minutes)",
+    "If a weather service stops responding — these free APIs hand out timeouts and 503s fairly regularly — "
+    + "keep its last known tags for this long instead of treating the outage as \"all clear\". Without it, a "
+    + "single failed check ends a storm burst early. Set 0 to disable.",
+    numberField("events.stale_grace_minutes", {default: 15, min: 0})));
+  sec.appendChild(tuning);
+
   return sec;
 }
 

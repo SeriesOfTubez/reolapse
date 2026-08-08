@@ -36,6 +36,24 @@ APP_ROOT = Path(__file__).resolve().parent
 # loads once and events compute once per year, not on every poll.
 _SKY = {}
 
+# Network lookups that never change for a given location (e.g. which NWS station
+# is nearest), so we don't re-resolve them on every poll.
+_NET_CACHE = {}
+
+
+def _num(value, default=0.0) -> float:
+    """Coerce an API/config value to float; None and junk fall back.
+
+    Open-Meteo returns null for a field a model doesn't provide (CAPE is absent
+    in some regions), and a null must not read as zero-and-therefore-calm.
+    """
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
 # (substring of NWS event name, tag)
 NWS_TAG_MAP = [
     ("tornado", "storm"),
@@ -50,12 +68,41 @@ NWS_TAG_MAP = [
     ("flood", "rain"),
 ]
 
+# Substrings of NWS observed present-weather / textDescription. These come from
+# real station observations rather than a forecast model, so a thunderstorm here
+# means one is actually happening at the nearest ASOS site.
+NWS_OBSERVED_MAP = [
+    ("thunderstorm", "storm"),
+    ("squall", "storm"),
+    ("funnel", "storm"),
+    ("snow", "snow"),
+    ("sleet", "snow"),
+    ("ice pellets", "snow"),
+    ("freezing", "snow"),
+    ("blizzard", "snow"),
+    ("rain", "rain"),
+    ("drizzle", "rain"),
+]
+
 # WMO weather codes from Open-Meteo's "weather_code"
 WMO_TAGS = {
     "storm": {95, 96, 99},
     "snow": {71, 73, 75, 77, 85, 86},
     "rain": {61, 63, 65, 66, 67, 80, 81, 82},
 }
+
+# Open-Meteo's `current.weather_code` reports thunderstorm (95/96/99) far less
+# often than thunderstorms actually occur — in practice a storm downpour comes
+# back as 80-82 ("rain showers", 82 = violent) or 61-65 ("rain"). Relying on the
+# code alone means `storm` effectively never fires, which is exactly what a real
+# deployment showed: 12 rainy days, zero storm tags, so no burst capture and no
+# event videos. So we corroborate with the physical fields instead.
+#
+# CAPE is convective *potential*, not occurrence — it can sit above 2000 J/kg
+# under a clear sky — so it only counts alongside actual falling precipitation.
+STORM_CAPE_MIN = 800.0       # J/kg, with precipitation: convective rain
+STORM_GUST_MIN = 60.0        # km/h, on its own: squall / downburst
+STORM_PRECIP_MIN = 0.1       # mm in the reporting interval = "actually raining"
 
 
 def _skyfield(cache_dir):
@@ -240,18 +287,93 @@ def nws_alert_tags(lat, lon, timeout=10) -> dict:
     return tags
 
 
-def open_meteo_tags(lat, lon, timeout=10) -> dict:
+def open_meteo_tags(lat, lon, timeout=10, cfg=None) -> dict:
+    """Current-conditions tags from Open-Meteo.
+
+    Asks for the physical fields alongside the WMO code, because the code alone
+    under-reports thunderstorms badly (see STORM_CAPE_MIN above).
+    """
+    cfg = cfg or {}
+    cape_min = _num(cfg.get("storm_cape_min"), STORM_CAPE_MIN)
+    gust_min = _num(cfg.get("storm_gust_kmh"), STORM_GUST_MIN)
+    precip_min = _num(cfg.get("storm_precip_mm"), STORM_PRECIP_MIN)
+
     tags = {}
     resp = requests.get(
         "https://api.open-meteo.com/v1/forecast",
-        params={"latitude": lat, "longitude": lon, "current": "weather_code"},
+        params={"latitude": lat, "longitude": lon,
+                "current": "weather_code,precipitation,wind_gusts_10m,cape"},
         timeout=timeout,
     )
     resp.raise_for_status()
-    code = resp.json()["current"]["weather_code"]
+    current = resp.json()["current"]
+    code = current.get("weather_code")
+    precip = _num(current.get("precipitation"), 0.0)
+    gusts = _num(current.get("wind_gusts_10m"), 0.0)
+    cape = _num(current.get("cape"), 0.0)
+
     for tag, codes in WMO_TAGS.items():
         if code in codes:
             tags.setdefault(tag, f"Open-Meteo weather code {code}")
+
+    # Raining hard enough to see, with the instability to drive convection.
+    if precip >= precip_min and cape >= cape_min:
+        tags.setdefault("storm", f"Open-Meteo convective: {precip} mm precip, "
+                                 f"CAPE {cape:.0f} J/kg")
+    # A squall line's gust front is worth capturing whether or not it's raining.
+    if gusts >= gust_min:
+        tags.setdefault("storm", f"Open-Meteo wind gusts {gusts:.0f} km/h")
+    return tags
+
+
+def _nws_station(lat, lon, timeout=10):
+    """Nearest NWS observation station id, cached (it never moves)."""
+    key = ("station", round(lat, 3), round(lon, 3))
+    if key in _NET_CACHE:
+        return _NET_CACHE[key]
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/geo+json"}
+    point = requests.get(f"https://api.weather.gov/points/{lat},{lon}",
+                         headers=headers, timeout=timeout)
+    point.raise_for_status()
+    stations_url = point.json()["properties"]["observationStations"]
+    stations = requests.get(stations_url, headers=headers, timeout=timeout)
+    stations.raise_for_status()
+    features = stations.json().get("features") or []
+    if not features:
+        raise RuntimeError("no NWS observation station near this location")
+    station = features[0]["properties"]["stationIdentifier"]
+    _NET_CACHE[key] = station
+    return station
+
+
+def nws_observed_tags(lat, lon, timeout=10) -> dict:
+    """Tags from the nearest NWS station's latest *observation* (US only).
+
+    Alerts only fire for officially warned events, which misses ordinary
+    thunderstorms entirely. This is what the station actually reports right now.
+    """
+    tags = {}
+    station = _nws_station(lat, lon, timeout)
+    resp = requests.get(
+        f"https://api.weather.gov/stations/{station}/observations/latest",
+        headers={"User-Agent": USER_AGENT, "Accept": "application/geo+json"},
+        timeout=timeout,
+    )
+    resp.raise_for_status()
+    props = resp.json().get("properties") or {}
+
+    phrases = []
+    for entry in props.get("presentWeather") or []:
+        phrases.append(" ".join(str(entry.get(k) or "")
+                                for k in ("intensity", "modifier", "weather")))
+    if props.get("textDescription"):
+        phrases.append(props["textDescription"])
+
+    blob = " ".join(phrases).lower()
+    for substring, tag in NWS_OBSERVED_MAP:
+        if substring in blob:
+            tags.setdefault(tag, f"NWS {station} observed: "
+                                 f"{props.get('textDescription') or substring}")
     return tags
 
 
@@ -352,16 +474,15 @@ def detect_timezone(cfg):
     return tzname
 
 
-def get_active_tags(events_cfg, cache_dir=None) -> dict:
-    """All currently active tags -> human-readable reason.
+def poll_sources(events_cfg, cache_dir=None) -> dict:
+    """Poll every enabled source separately: {name: {"tags": {...}, "ok": bool}}.
 
-    `events.weather_enabled`, `events.lunar_enabled`, and `events.season_enabled`
-    are independent: weather tagging needs a resolvable location, lunar phase
-    tags don't (only eclipse-visibility checking benefits from one), and
-    season tagging only uses location to pick the correct hemisphere (it
-    defaults to Northern without one). Each source is independent; one
-    failing never blocks the others.
-    `cache_dir` stores the Skyfield ephemeris (downloaded once).
+    Keeping sources named and their success separate is what lets the caller
+    tell "nothing is happening" apart from "we couldn't reach anyone" — a
+    distinction get_active_tags alone can't express, since both look like an
+    empty dict. Callers that poll on a timer should hold the last good result
+    for a failed source rather than treating it as all-clear (see
+    capture.Conditions), or one API timeout ends a burst mid-storm.
     """
     cache_dir = Path(cache_dir) if cache_dir else APP_ROOT / ".ephemeris"
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -382,20 +503,46 @@ def get_active_tags(events_cfg, cache_dir=None) -> dict:
 
     sources = []
     if weather_on and lat is not None:
-        sources += [lambda: nws_alert_tags(lat, lon), lambda: open_meteo_tags(lat, lon)]
+        sources += [
+            ("nws-alerts", lambda: nws_alert_tags(lat, lon)),
+            ("nws-observed", lambda: nws_observed_tags(lat, lon)),
+            ("open-meteo", lambda: open_meteo_tags(lat, lon, cfg=events_cfg)),
+        ]
     if lunar_on:
-        sources.append(lambda: moon_tags(dt.date.today(), cache_dir, lat, lon))
+        sources.append(("lunar", lambda: moon_tags(dt.date.today(), cache_dir, lat, lon)))
     if season_on:
-        sources.append(lambda: {season_for_date(dt.date.today(), cache_dir, lat):
-                                 "astronomical season"})
+        sources.append(("season",
+                        lambda: {season_for_date(dt.date.today(), cache_dir, lat):
+                                 "astronomical season"}))
 
-    tags = {}
-    for source in sources:
+    results = {}
+    for name, source in sources:
         try:
-            for tag, reason in source().items():
-                tags.setdefault(tag, reason)
+            results[name] = {"tags": dict(source()), "ok": True}
         except Exception as exc:
-            log.warning("event source failed: %s", exc)
+            # NWS observations are US-only; a non-US location 404s every poll,
+            # which is expected rather than a fault worth shouting about.
+            level = log.debug if name == "nws-observed" else log.warning
+            level("event source %s failed: %s", name, exc)
+            results[name] = {"tags": {}, "ok": False}
+    return results
+
+
+def get_active_tags(events_cfg, cache_dir=None) -> dict:
+    """All currently active tags -> human-readable reason.
+
+    `events.weather_enabled`, `events.lunar_enabled`, and `events.season_enabled`
+    are independent: weather tagging needs a resolvable location, lunar phase
+    tags don't (only eclipse-visibility checking benefits from one), and
+    season tagging only uses location to pick the correct hemisphere (it
+    defaults to Northern without one). Each source is independent; one
+    failing never blocks the others.
+    `cache_dir` stores the Skyfield ephemeris (downloaded once).
+    """
+    tags = {}
+    for result in poll_sources(events_cfg, cache_dir).values():
+        for tag, reason in result["tags"].items():
+            tags.setdefault(tag, reason)
     for tag in events_cfg.get("force_tags") or []:  # testing hook
         tags.setdefault(tag, "forced via config")
     return tags
