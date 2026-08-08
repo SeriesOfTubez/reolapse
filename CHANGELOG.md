@@ -37,6 +37,16 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   one with lunar tagging off never triggers the ephemeris download — the tab
   explains what's switched off rather than just looking empty. Configurable via
   `events.forecast_days` (1-10) and `events.forecast_snow_cm_min`.
+- **Per-camera event opt-out.** A camera can now set `events_enabled: false` to
+  ignore weather/lunar events entirely — it holds its own `interval_seconds`
+  through a storm instead of dropping to `events.burst_interval_seconds`, and no
+  event clips are built from its frames. For a camera the weather isn't visible
+  from (indoors, a doorway, a tight framing) the burst frames are just disk and
+  the clip is a video of nothing happening. The burst interval is now resolved
+  **per camera**, so the rest of the setup still bursts normally. Frames are
+  still tagged either way, so the metadata stays complete for the search/filter
+  features built on it. Defaults to true; existing configs are unaffected.
+  Editable from the Config page under each camera's **Weather events**.
 - **Per-camera capture schedules.** A camera can now set its own
   `daylight_window` (`enabled`/`mode`/`buffer_minutes`) and `interval_seconds`,
   each falling back to the global `capture` settings independently. This lets a
@@ -73,6 +83,14 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   burst mid-storm and truncated the event clip. A source that can't be reached
   now keeps its last known tags for `events.stale_grace_minutes` (default: three
   polls) instead of reading as all-clear.
+- `upgrade.sh` with an explicit **`REOLAPSE_REF` pointing at a branch** upgraded
+  to the wrong code, silently. The ref was used verbatim, but the preceding
+  fetch only updates remote-tracking refs — so `REOLAPSE_REF=main` reset to the
+  machine's *local* `main`, which is stale on a normal install (it resolved to
+  the **v0.1.0** commit on a box last upgraded at v0.1.0) and doesn't exist at
+  all on the shallow single-branch clone `install.sh` creates, where the upgrade
+  failed outright. The ref is now fetched by name first, which works for
+  branches, tags, and SHAs alike. Tag upgrades were unaffected.
 
 ## [0.2.0] - 2026-07-14
 

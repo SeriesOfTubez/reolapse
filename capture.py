@@ -23,8 +23,8 @@ import urllib3
 
 import events
 from common import (APP_ROOT, APP_VERSION, camera_daylight_config,
-                    camera_interval_seconds, load_config, local_now, local_today,
-                    snapshots_dir, tzinfo_for, videos_dir)
+                    camera_events_enabled, camera_interval_seconds, load_config,
+                    local_now, local_today, snapshots_dir, tzinfo_for, videos_dir)
 
 # A "night" spans midnight, so night frames are bucketed by a noon-to-noon
 # logical day (shift the timestamp back 12h). That makes one evening + the
@@ -124,7 +124,15 @@ class Conditions:
             with open(self.log_dir / f"{now:%Y-%m-%d}.jsonl", "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry) + "\n")
 
-    def interval(self, base_seconds):
+    def interval(self, base_seconds, events_enabled=True):
+        """The effective interval for one camera: shortened to the burst
+        interval while a burst tag is active, otherwise its base interval.
+
+        A camera with events_enabled: false never bursts — it holds its base
+        interval through the storm, since the weather isn't visible from it.
+        """
+        if not events_enabled:
+            return base_seconds
         burst_tags = set(self.wcfg.get("burst_tags") or [])
         if burst_tags & set(self.tags):
             return max(MIN_INTERVAL_SECONDS, self.wcfg.get("burst_interval_seconds", 10))
@@ -335,6 +343,10 @@ def run_once(cfg, conditions=None, windows=None, tz=None, due=None):
     capture_cfg = cfg["capture"]
     windows = windows or {}
 
+    # Tags are embedded on every camera's frames, including cameras with
+    # events_enabled: false. The opt-out governs capture *rate* and video
+    # builds, not metadata — the JPEG comment costs nothing and keeps the
+    # frame record complete for the search/filter features built on it.
     tags = sorted(conditions.tags) if conditions else []
     out_root = snapshots_dir(cfg)
     for cam in cfg["cameras"]:
@@ -406,14 +418,16 @@ def loop(cfg, config_path=None):
     windows = {cam["name"]: DaylightWindow(cfg, tz, cam) for cam in cfg["cameras"]}
     intervals = {cam["name"]: camera_interval_seconds(cfg, cam, MIN_INTERVAL_SECONDS)
                  for cam in cfg["cameras"]}
+    events_on = {cam["name"]: camera_events_enabled(cfg, cam) for cam in cfg["cameras"]}
     for cam in cfg["cameras"]:
         name = cam["name"]
         win = windows[name]
         if win.enabled and (cfg["capture"].get("start_time") or cfg["capture"].get("end_time")):
             log.warning("%s: daylight window is enabled; static start_time/end_time "
                         "are ignored for this camera", name)
-        log.info("%s: %s mode, every %ds", name,
-                 win.mode if win.enabled else "all-day", intervals[name])
+        log.info("%s: %s mode, every %ds%s", name,
+                 win.mode if win.enabled else "all-day", intervals[name],
+                 "" if events_on[name] else " (ignores events: no burst, no event videos)")
     if any(w.night for w in windows.values()):
         log.info("night mode active; each night's video is built ~%d min after "
                  "that camera's window closes at dawn", NIGHT_BUILD_DELAY.seconds // 60)
@@ -429,7 +443,10 @@ def loop(cfg, config_path=None):
         conditions.refresh()
         # Burst tags (storm/snow) shorten the interval; pick a burst interval
         # that divides the base one so burst frames stay clock-aligned too.
-        effective = {name: conditions.interval(secs) for name, secs in intervals.items()}
+        # Resolved per camera, so a camera that ignores events keeps its own
+        # interval while the rest burst.
+        effective = {name: conditions.interval(secs, events_on.get(name, True))
+                     for name, secs in intervals.items()}
         # Tick at the fastest camera's rate; slower ones simply aren't due yet.
         tick = min(effective.values()) if effective else conditions.interval(MIN_INTERVAL_SECONDS)
         now = time.time()

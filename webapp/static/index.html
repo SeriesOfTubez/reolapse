@@ -1610,6 +1610,7 @@ function renderCameraCards(list) {
       checkboxField(`cameras.${i}.verify_ssl`, {default: false})));
 
     card.appendChild(buildCameraScheduleSection(i));
+    card.appendChild(buildCameraEventsSection(i));
 
     if (cam.ptz_home) {
       const hint = document.createElement("div");
@@ -1678,6 +1679,42 @@ function buildCameraScheduleSection(i) {
   syncVisibility(cfgGet(`cameras.${i}.daylight_window.enabled`, gEnabled));
   const toggle = box.querySelector('input[type="checkbox"]');
   if (toggle) toggle.addEventListener("change", () => syncVisibility(toggle.checked));
+
+  return box;
+}
+
+// Per-camera opt-out from weather/lunar events. Kept out of the schedule
+// section above because it isn't a schedule — it decides whether this camera
+// reacts to events at all.
+function buildCameraEventsSection(i) {
+  const anyEvents = cfgGet("events.weather_enabled", false)
+    || cfgGet("events.lunar_enabled", false)
+    || cfgGet("events.season_enabled", false);
+  const burstTags = cfgGet("events.burst_tags", []) || [];
+  const tagList = burstTags.length ? burstTags.join(" or ") : "a burst";
+
+  const box = document.createElement("div");
+  box.className = "cfg-subsection";
+  const heading = document.createElement("h4");
+  heading.textContent = "Weather events";
+  box.appendChild(heading);
+
+  if (!anyEvents) {
+    const off = document.createElement("div");
+    off.className = "cfg-hint-block";
+    off.textContent = "No event tagging is switched on for this setup yet — see the Events "
+      + "section further down this page. This setting takes effect once it is.";
+    box.appendChild(off);
+  }
+
+  box.appendChild(fieldRow("Follow weather events",
+    `On: this camera speeds up to the burst interval while a ${tagList} tag is active, and gets `
+    + "its own event clip for each of those spans. Off: it ignores events entirely — it holds "
+    + "its normal capture interval through the storm and no event clips are built from its "
+    + "frames. Turn it off for a camera the weather isn't visible from — indoors, a doorway, a "
+    + "tight framing — where the extra frames are just disk and the clip is a video of nothing "
+    + "happening. Frames still get tagged either way, so the metadata stays complete.",
+    checkboxField(`cameras.${i}.events_enabled`, {default: true})));
 
   return box;
 }

@@ -47,11 +47,39 @@ preflight() {
   fi
 }
 
+# Echoes a revision that `git reset --hard` can use.
+#
+# An explicit REOLAPSE_REF used to be echoed verbatim, which quietly did the
+# wrong thing: the fetch above only updates remote-tracking refs and tags, so
+# REOLAPSE_REF=main reset to the machine's *local* main — stale, or absent
+# entirely on the shallow single-branch clone install.sh creates (`git clone
+# --branch <tag> --depth 1` implies --single-branch, so refs/remotes/origin/main
+# may never have existed). Fetching the ref by name fixes both cases and works
+# for branches, tags, and SHAs alike.
 pick_target() {
-  git -C "$DEST" fetch --tags --force --prune origin >/dev/null 2>&1
   if [ -n "${REOLAPSE_REF:-}" ]; then
-    echo "$REOLAPSE_REF"; return
+    local ref="$REOLAPSE_REF"
+    # Fetch by name first — the only form that reaches a branch the local
+    # clone has never tracked.
+    if git -C "$DEST" fetch --tags --force origin "$ref" >/dev/null 2>&1; then
+      git -C "$DEST" rev-parse FETCH_HEAD
+      return
+    fi
+    # Not fetchable by name (e.g. a raw SHA already present, or offline):
+    # fall back to whatever resolves locally, preferring the remote copy.
+    git -C "$DEST" fetch --tags --force --prune origin >/dev/null 2>&1
+    local candidate
+    for candidate in "origin/$ref" "$ref"; do
+      if git -C "$DEST" rev-parse -q --verify "$candidate^{commit}" >/dev/null 2>&1; then
+        git -C "$DEST" rev-parse "$candidate"
+        return
+      fi
+    done
+    err "Could not resolve REOLAPSE_REF='$ref' as a branch, tag, or commit."
+    return 1
   fi
+
+  git -C "$DEST" fetch --tags --force --prune origin >/dev/null 2>&1
   local latest_tag
   latest_tag="$(git -C "$DEST" tag -l 'v*' | sort -V | tail -1)"
   if [ -n "$latest_tag" ]; then
@@ -67,12 +95,14 @@ main() {
   trap 'err "Upgrade failed (line $LINENO). Your install was not changed beyond what already ran."' ERR
   preflight
 
-  local before target
+  local before target label
   before="$(cat "$DEST/VERSION" 2>/dev/null || echo unknown)"
   target="$(pick_target)"
-  info "Current version: $before  ->  upgrading to: $target"
+  # An explicit ref resolves to a bare SHA, so show what the user asked for.
+  label="${REOLAPSE_REF:-$target}"
+  info "Current version: $before  ->  upgrading to: $label"
 
-  info "Fetching and checking out $target…"
+  info "Fetching and checking out $label…"
   git -C "$DEST" reset --hard "$target"
 
   info "Reinstalling Python dependencies…"
