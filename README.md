@@ -199,240 +199,63 @@ Open <http://localhost:8080>. Three services start: `capture` (continuous),
 
 ## Install on a Linux VM (systemd)
 
-> **Running this in a VM?** Make sure the hypervisor exposes at least the
-> x86-64-v2 CPU baseline to the guest — see [Requirements](#requirements).
-> Proxmox's default CPU type doesn't; `host` or `x86-64-v3` does.
-
-### Easy install (one command)
-
-For a Debian/Ubuntu host with systemd. Installs the system packages, clones into
-`/opt/reolapse`, sets up the virtualenv, installs and enables the systemd units
-**for the user running the script** (retargeting the units' default `User=`, so
-you don't need an `ubuntu` user), starts the web UI, and (unless you opt out)
-adds the scoped sudo rule for the Config page's Restart button:
+For a Debian/Ubuntu host, the easy installer clones into `/opt/reolapse`, sets
+up the virtualenv, installs and enables the systemd units, and starts the web
+UI:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SeriesOfTubez/reolapse/main/install.sh | bash
 ```
 
-Piping a script into your shell means running it unread — reasonable to look
-first (a good habit for any `curl | bash`):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/SeriesOfTubez/reolapse/main/install.sh -o install.sh
-less install.sh
-bash install.sh
-```
-
-By default it installs the **latest stable release**; run interactively it asks
-whether you'd rather have `main` (latest development code). Run it as a normal
-user with sudo — **not** as root. It deliberately stops short of capturing: you
-still fill in `config.yaml` and `.env` (or use the web UI's Config tab), then
-`sudo systemctl start reolapse-capture.service` — the script prints the exact
+(Piping a script into your shell means running it unread — reasonable to
+`curl -o install.sh` and skim it first.) Run it as a normal user with sudo,
+not as root. It stops short of capturing — you still fill in `config.yaml`
+and `.env` before starting the capture service; the script prints the exact
 next steps.
 
-Env-var options: `REOLAPSE_DIR=` (install location), `REOLAPSE_REF=` (a tag or
-`main` to skip the prompt — e.g. `REOLAPSE_REF=main` for dev code, or
-`REOLAPSE_REF=v0.1.0` to pin a release), `REOLAPSE_YES=1` (non-interactive,
-takes the stable default), `REOLAPSE_SKIP_SUDOERS=1`.
-
-### Manual install
-
-```bash
-sudo mkdir -p /opt/reolapse && sudo chown "$USER" /opt/reolapse
-git clone https://github.com/SeriesOfTubez/reolapse.git /opt/reolapse
-cd /opt/reolapse
-
-sudo apt install -y ffmpeg
-python3 -m venv venv && venv/bin/pip install -r requirements.txt
-
-cp config.example.yaml config.yaml   # edit for your setup
-cp .env.example .env                  # set REOLINK_PASSWORD
-chmod 600 .env config.yaml
-```
-
-**What you must configure** before the services will work:
-
-1. **`config.yaml`** — your cameras (host/channel/name), and optionally location
-   and capture settings. See [Configuration](#configuration) below for every
-   field.
-2. **`.env`** — set `REOLINK_PASSWORD` (and any extra `REOLINK_PASSWORD_*`) to
-   your real camera/NVR password(s). `config.yaml` only ever references these by
-   name, never the literal value.
-
-Test one capture before wiring up the services (`venv/bin/python capture.py -v` —
-a JPEG should appear under `data/snapshots/…`).
-
-**Then point the systemd units at your setup.** The units in `deploy/` are
-written for the defaults **`User=ubuntu`** and **`/opt/reolapse`** — if either
-differs for you they won't start, so retarget them first:
-
-```bash
-# Set User= to the account the services run as (skip if you really use "ubuntu"):
-sed -i "s/^User=ubuntu$/User=$(id -un)/" deploy/*.service
-
-# Only if you installed somewhere other than /opt/reolapse, fix the paths too:
-# sed -i "s|/opt/reolapse|/your/install/path|g" deploy/*.service
-```
-
-Now install and enable them:
-
-```bash
-sudo cp deploy/*.service deploy/*.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now reolapse-capture.service \
-     reolapse-web.service reolapse-daily.timer reolapse-yearly.timer
-```
-
-Finally, make sure ReoLapse knows your timezone so capture days line up with
-your local midnight: either set `capture.timezone` (an IANA name like
-`America/Chicago`), leave it blank to auto-detect from your `events.zip` /
-latitude-longitude, or set the host clock (`sudo timedatectl set-timezone …`).
-The config option is the most reliable — it doesn't depend on the host clock
-being right.
-
-**(Optional) Enable the Config page's Restart button.** A ready-made, scoped
-sudo drop-in ships in `deploy/`. It also defaults to user `ubuntu`, so set it to
-your account first (and confirm the `systemctl` path matches
-`command -v systemctl` — it's `/usr/bin/systemctl` on most systems), then
-validate and install it:
-
-```bash
-sed -i "s/^ubuntu /$(id -un) /" deploy/reolapse.sudoers   # set your user
-
-sudo visudo -cf deploy/reolapse.sudoers \
-  && sudo install -m 0440 -o root -g root deploy/reolapse.sudoers /etc/sudoers.d/reolapse
-```
+For manual install steps, retargeting the systemd units to your user/path,
+the optional Config-page Restart button, and env-var install options, see the
+[Installation](https://github.com/SeriesOfTubez/reolapse/wiki/Installation)
+wiki page.
 
 ## Upgrading
 
-Upgrades only change code — your `config.yaml`, `.env`, and `data/` are
-gitignored (Linux) or on a named volume (Docker), so history and settings are
-never touched.
-
-**Linux (installed with `install.sh`):**
+Upgrades only touch code — `config.yaml`, `.env`, and `data/` are never
+touched.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SeriesOfTubez/reolapse/main/upgrade.sh | bash
 ```
 
-…or `bash upgrade.sh` from your install dir. It fetches the latest release,
-reinstalls dependencies, refreshes the systemd units, and restarts the
-services. Pin a version with `REOLAPSE_REF=v0.2.0`, or track the tip of `main`
-with `REOLAPSE_REF=main`.
-
-**Docker:**
-
-```bash
-cd /path/to/reolapse
-git pull                                # refresh compose file + docs
-docker compose pull && docker compose up -d   # or: up -d --build to build from source
-```
-
-The `data` volume survives across both. (`git pull` just updates the compose
-file; the actual app comes from the pulled image or a local build.)
-
-Releases are tagged and listed on the
-[Releases page](https://github.com/SeriesOfTubez/reolapse/releases). The running
-version appears in the web UI header and in the capture/web service logs.
+Docker: `docker compose pull && docker compose up -d` (or `git pull` first to
+refresh the compose file). Pinning a version, tracking `main`, and what each
+path preserves are on the
+[Installation](https://github.com/SeriesOfTubez/reolapse/wiki/Installation#upgrading)
+wiki page.
 
 ## Configuration
 
-Everything lives in `config.yaml` (copy from `config.example.yaml`). Secrets do
-not: reference them as `${VAR}` and put the values in `.env`. Highlights:
-
-| Key | Meaning |
-|---|---|
-| `cameras[].host` / `channel` | Camera IP + `0`, or NVR IP + channel number |
-| `cameras[].ptz_home` | Quarantine frames taken off a PTZ camera's home position |
-| `cameras[].daylight_window` | Per-camera day/night schedule; each key falls back to `capture.daylight_window` — see [Per-camera schedules](#per-camera-schedules) |
-| `cameras[].interval_seconds` | Per-camera capture cadence; falls back to `capture.interval_seconds` |
-| `cameras[].events_enabled` | `false` makes a camera ignore events entirely — no burst capture, no event clips (default `true`) — see [Cameras that sit out events](#cameras-that-sit-out-events) |
-| `capture.timezone` | IANA timezone for capture timing/day boundaries; blank auto-detects from location, else falls back to the host clock |
-| `capture.interval_seconds` | Base capture cadence (default 60, minimum 10) |
-| `capture.start_time`/`end_time` | Optional fixed daily capture window |
-| `capture.daylight_window` | Capture only around actual sunrise/sunset instead of a fixed clock window — see [Night capture & IR cameras](#night-capture--ir-cameras) |
-| `storage.keep_snapshots_days` | Retention for raw frames after their video builds |
-| `daily_video.deflicker_size` | Deflicker window; `0` disables |
-| `daily_video.retention_days` | Delete a daily video this many days after its date; `0` = forever |
-| `yearly.min_days_before_render` | Wait until this many days are archived before rendering the yearly video (default 30); `0` renders as soon as any frames exist, `yearly --force` overrides once |
-| `yearly.video_frames_per_day` / `video_window` | Pacing of the yearly video |
-| `yearly.retention_years` | Delete a yearly video once it's this many years old; `0` = forever. Cheap to set low — see [Storage estimates](#storage-estimates) |
-| `events.weather_enabled` | Storm/snow/rain tagging + burst capture (needs `events.zip` or `latitude`/`longitude`) |
-| `events.lunar_enabled` | Moon-event tagging — no location required |
-| `events.season_enabled` | Spring/summer/fall/winter tagging on frames + video metadata — no location required |
-| `events_video.tags` | Which tags get their own `<date>_<tag>.mp4` clip (default `storm`, `snow`; any tag works, including moon events) |
-| `events_video.deflicker_size` / `deflicker_by_tag` | Deflicker for event clips — off by default (protects lightning in storm clips), overridable per tag (e.g. enable for `snow`) |
-| `events_video.retention_days` | Delete an event clip this many days after its date; `0` = forever |
-| `webapp.accent_color` | UI accent color: `amber` (default), `green`, `blue`, `red`, `purple`, `yellow` |
-
-See the inline comments in `config.example.yaml` for the full reference.
+Everything lives in `config.yaml` (copy from `config.example.yaml`); secrets
+don't — reference them as `${VAR}` and put the real values in `.env`. See the
+inline comments in `config.example.yaml`, or the
+[Configuration Reference](https://github.com/SeriesOfTubez/reolapse/wiki/Configuration-Reference)
+wiki page for every field explained.
 
 ## Config page & network discovery
 
-The **Config** tab edits `config.yaml` from the browser instead of by hand —
-every setting above except secrets (see below) is exposed as a checkbox,
-dropdown, radio, or text field.
+The **Config** tab edits `config.yaml` from the browser — every setting
+except secrets, which stay read-only and env-var-only. Passwords are always
+shown as a `${VAR}` dropdown, never a real value. It also includes network
+discovery to find Reolink cameras/NVRs on your LAN.
 
 <p align="center">
   <img src="assets/screenshot-config.png" width="820" alt="ReoLapse Config page: editing a camera in the browser — name, host, channel, username, a password field that's a dropdown of .env variable references, and HTTPS / verify-SSL toggles, with Save config and Restart services buttons">
 </p>
 
-- **Passwords are always a variable reference, never a real value, in the
-  UI.** Each camera's password field is a dropdown of `REOLINK_PASSWORD*`
-  variables this server has loaded from `.env` (names only — the actual
-  values never reach the browser); pick one, or choose "Custom" to reference
-  a variable you haven't added to `.env` yet. The save endpoint independently
-  rejects anything that isn't a `${VAR}` reference, so a literal password
-  typed into the form can't end up in `config.yaml` even if the UI is
-  bypassed.
-- **Fields the UI doesn't have a control for are preserved as-is.** The page
-  edits the config it fetched in place rather than rebuilding it from
-  scratch, so things like a camera's `ptz_home` block or
-  `events_video.deflicker_by_tag` survive a save untouched even though
-  there's no form control for them yet.
-- **Saving does not restart anything by itself.** The web UI picks up most
-  changes on next page load (accent color is immediate), but `capture.py` and
-  `build_timelapse.py` are separate processes — they only pick up a saved
-  change after a restart.
-- **Restart services button.** On a systemd deployment, the Config page's
-  footer has a **Restart services** button that runs
-  `systemctl restart reolapse-capture.service` and
-  `reolapse-web.service` for you, so you don't need shell access just to
-  apply a config change. It requires a narrowly-scoped passwordless sudo rule
-  (only those two restart commands, nothing else). The **easy installer sets
-  this up automatically**; for a manual install, install the ready-made
-  `deploy/reolapse.sudoers` drop-in (see
-  [Install on a Linux VM](#install-on-a-linux-vm-systemd)). Without the rule
-  the button just fails with a clear error instead of hanging. Docker
-  deployments don't have `systemctl` at all — the button detects this and
-  tells you to run `docker compose restart` instead.
-- **Comments are not preserved.** This editor round-trips the YAML as data,
-  not text, so saving from the UI strips out `config.yaml`'s hand-written
-  comments. A backup of the previous file is written to `config.yaml.bak`
-  before every save.
-- **Config page access (optional passcode).** The **Config page access**
-  section at the bottom of the page lets you set a single passcode that gates
-  this page and its write/scan endpoints — video browsing stays open. Setting
-  the first passcode is allowed from the open page (it logs you straight in);
-  changing or removing it afterward requires being logged in. See
-  [Security](#security) for how it's stored and what it does and doesn't
-  protect. Setting or changing the passcode also rewrites `config.yaml` (same
-  `.bak` backup, same comment-stripping caveat as above).
-- **Network discovery** (inside the Cameras section) scans your `/24` for
-  Reolink devices and lists the ones it finds. An unauthenticated probe can
-  only confirm a device is there, not what it is — click **Identify & add**
-  on a result, supply credentials, and it fetches the real model/name/channel
-  list before adding anything. The credentials you type there are used for
-  that one lookup only and are never saved; you still need to add the real
-  password to `.env` yourself before restarting capture. If a scan seems to
-  miss a device, try it again — the first scan after a service restart can
-  occasionally undercount on constrained hardware (observed on a 1-vCPU
-  reference VM; consistently found everything on immediate re-runs).
-  Discovery only sees whatever network the server itself is on — inside
-  Docker's default bridge network, that's the container's private subnet,
-  not your LAN; run outside Docker or add `network_mode: host` if you want
-  discovery to work in a container.
+What's preserved on save, the Restart-services button, the optional passcode,
+and how discovery works are on the
+[Configuration Reference](https://github.com/SeriesOfTubez/reolapse/wiki/Configuration-Reference#config-page--network-discovery)
+wiki page.
 
 ## Storage estimates
 
@@ -440,88 +263,22 @@ dropdown, radio, or text field.
   <img src="assets/screenshot-storage.png" width="820" alt="ReoLapse Storage tab: stat cards for disk used, snapshots, daily and yearly video sizes and average build time; a storage runway forecast banner; and a per-camera usage table">
 </p>
 
-The **Storage** tab in the web UI shows live per-camera and system-wide usage
-and daily growth (`storage_stats.py`, refreshed after every nightly build —
-no guessing required once it's running). Before you get there, here's real
-data from the reference deployment (3 Reolink cameras of different
-resolutions, 1 frame/minute, all-day capture) to help you size disk up front:
-
-| Camera | Resolution | Avg JPEG size | Raw snapshots/day | Daily video/day |
-|---|---|---|---|---|
-| Reolink Wired WiFi Doorbell | 2560×1920 (4.9 MP) | ~450 KB | ~0.6 GB | ~200 MB |
-| Reolink TrackMix WiFi (Wide Cam) | 3840×2160 (8.3 MP) | ~1.3 MB | ~1.8 GB | ~290 MB |
-| Reolink OMVI 3i WiFi (Fixed Cam) | 5120×1920 (9.8 MP) | ~1.7 MB | ~2.4 GB | ~470 MB |
-
-Rough rule of thumb: **~0.1–0.2 MB per megapixel per frame**, varying with
-scene complexity and each camera's own JPEG quality setting — the range above
-spans 3 real cameras and isn't a tight line, so treat it as a ballpark, not a
-formula. For a precise number, check the actual size of a few files in
-`data/snapshots/<camera>/` and multiply by how many frames/day you'll capture
-(`86400 / capture.interval_seconds`, or less if `start_time`/`end_time` is set).
-
-What accumulates and what doesn't, and how to bound each:
-
-- **Raw snapshots** are a *rolling window* — pruned `storage.keep_snapshots_days`
-  after each day's video builds, so this cost is already bounded by default.
-- **Daily videos, yearly videos, and event clips default to forever** (`0` in
-  `daily_video.retention_days`, `yearly.retention_years`,
-  `events_video.retention_days`) but each is independently configurable. In
-  the reference 3-camera deployment, daily videos alone grow by **~0.9
-  GB/day** — roughly **28 GB/month** or **340 GB/year** — unbounded by
-  default, before adding storm/snow clips or a fourth camera.
-- **Yearly *archive frames* (`data/yearly_frames/`) are never prunable, by
-  design** — that's the permanent, irreplaceable source the yearly video is
-  built from. This is why pruning a *yearly video* is cheap and safe: its
-  frames are untouched, so `build_timelapse.py yearly --year YYYY`
-  regenerates it any time. The frame archive itself is small regardless
-  (well under 100 MB/day across 3 cameras) — it's not what threatens your disk.
-
-### Retention & the storage forecast
-
-The Storage tab shows your **current retention settings** for all four tiers
-side by side, plus a **forecast**: it computes the eventual steady-state size
-of every tier that has a retention limit set, and a growth rate for whatever
-doesn't (the yearly archive frames always contribute here, since they can't
-be bounded). From that it reports one of three verdicts against your current
-free disk space:
-
-- **Runway** — some tier still grows forever; shows how long until disk
-  fills at the current rate (e.g. "~20 days").
-- **Headroom** — every tier is bounded and there's room to spare once each
-  reaches its ceiling.
-- **Shortage** — the bounded tiers' ceilings alone already exceed your free
-  space, before any unbounded growth is even considered.
-
-This recalculates after every nightly build, so it tracks reality as your
-retention settings, camera count, or event frequency change — no manual math
-required.
+Raw snapshots are a bounded rolling window, but daily/yearly/event videos
+default to being kept forever — a reference 3-camera deployment grows about
+**0.9 GB/day** under those defaults. The Storage tab shows your live usage
+and a shortage/headroom forecast. Full sizing numbers and the retention math
+are on the
+[Storage & Performance](https://github.com/SeriesOfTubez/reolapse/wiki/Storage-and-Performance#storage-estimates)
+wiki page.
 
 ## Performance
 
-Reference deployment: a Proxmox VM with **1 vCPU and 1 GB RAM** (Ubuntu 26.04
-cloud image), on a Proxmox host with an **Intel N95**. With 3 cameras and a
-full day of frames (~1440/camera), the nightly build takes about **45–50
-minutes** total and peaks around **700 MB RAM**. Encoding (`libx264`, default
-preset `medium`) is the bottleneck; the hardlink/copy staging step is
-comparatively instant.
-
-Cameras currently build **sequentially, one at a time** (not in parallel), so
-total build time is roughly the sum of each camera's encode time. Within a
-single camera's encode, though, `libx264` threads automatically across
-whatever cores are available — so **more vCPUs should speed up each camera's
-build** (diminishing returns past ~8 threads), and a faster single-thread CPU
-shortens it further. Neither has been benchmarked beyond the reference
-1-vCPU deployment above; reports from other hardware are welcome.
-
-If build time is a problem before you can add cores: lower `daily_video.max_height`
-(fewer pixels to encode), `capture.interval_seconds` (fewer frames/day), or
-the `preset` for the video type you're building (`daily_video.preset`,
-`yearly.preset`, `events_video.preset` — faster x264 presets trade a larger
-file for less CPU time). All are editable from the Config page.
-
-The Storage tab tracks your **own** build times (an "avg build time" card,
-averaged over the last 60 nightly builds) — that's the number to trust for
-your actual hardware and camera count, not the reference figures above.
+Reference deployment: a 1 vCPU / 1 GB RAM VM builds 3 cameras' worth of daily
+video in about 45–50 minutes; encoding is the bottleneck and threads across
+available cores. See the
+[Storage & Performance](https://github.com/SeriesOfTubez/reolapse/wiki/Storage-and-Performance#performance)
+wiki page for tuning options and what the Storage tab tracks for your own
+hardware.
 
 ## Usage
 
@@ -538,351 +295,67 @@ python webapp/app.py            # serve the web UI
 
 ## Weather tagging & storm bursts
 
-`events.weather_enabled` and `events.lunar_enabled` are independent
-switches — turn on either, both, or neither.
-
-With `events.weather_enabled: true` and a location set (`events.zip`, or
-`latitude`/`longitude`), capture polls NWS + Open-Meteo every `poll_minutes`
-for storm/snow/rain conditions. Active tags are appended to
-`data/conditions/<date>.jsonl` and embedded in each frame as a JPEG comment
-(`{"tags":["storm"]}`, visible in exiftool). Storms/snow trigger burst
-capture, and the nightly build renders a clip per event span into the
-**Events** tab. Deflicker for these clips is off by default (it would smooth
-away lightning flashes) but is fully configurable — see
-`events_video.deflicker_size` / `deflicker_by_tag` in the config table below
-if you'd like it on for snow, which has no lightning to protect. If weather
-tagging is enabled without a resolvable location, storm/snow tagging is
-skipped and the web UI shows a warning banner.
-
-### How a storm is detected
-
-Weather services report "thunderstorm" far less often than thunderstorms
-happen. Open-Meteo's `weather_code` only returns the thunderstorm values
-(WMO 95/96/99) in a minority of actual storms — a storm downpour normally comes
-back as *rain showers* instead. Detecting storms from that code alone means the
-`storm` tag almost never fires, so no burst capture and no event clips. A real
-deployment ran 19 days through repeated storms and logged **zero** storm tags
-for exactly this reason.
-
-So `storm` is corroborated from four independent signals, any one of which is
-enough:
-
-| signal | source | why |
-|---|---|---|
-| An active severe alert | NWS alerts (US) | officially warned events |
-| Observed thunderstorm | nearest NWS station (US) | what's actually happening now, not a forecast |
-| WMO code 95 / 96 / 99 | Open-Meteo | when the model does say thunderstorm |
-| Rain **plus** high CAPE | Open-Meteo | convective rain the code labels as showers |
-| Strong wind gusts | Open-Meteo | squall / gust front, wet or dry |
-
-CAPE (convective available potential energy) is *potential*, not occurrence — it
-can sit above 2000 J/kg under a clear sky — so it only ever tags a storm
-alongside actual falling rain. Tune the thresholds with `events.storm_cape_min`,
-`storm_precip_mm`, and `storm_gust_kmh`, or from the Config page under
-**Storm detection tuning**.
-
-Replayed against 92 days of real hourly weather, this raised storm detection
-from 5 days to 17, with 5 dry-hour triggers out of 1588 (all of them genuine
-gust fronts).
-
-### Surviving API outages
-
-These free services hand out timeouts and 502/503s fairly regularly. A failed
-poll tells you nothing about the weather, so ReoLapse holds a source's last
-known tags for `events.stale_grace_minutes` (default: three polls) instead of
-reading the outage as *all clear*. Without this, one timed-out request in the
-middle of a storm ends the burst early and truncates the event clip.
+With a location set, ReoLapse polls NWS + Open-Meteo and tags
+`storm`/`snow`/`rain` conditions, triggering faster burst capture and a
+per-event clip. Storm detection corroborates five independent signals rather
+than trusting a single weather code, since thunderstorm conditions are
+otherwise under-reported — a real deployment logged zero storm tags over 19
+days of repeated storms before this. See the
+[Weather & Storm Detection](https://github.com/SeriesOfTubez/reolapse/wiki/Weather-and-Storm-Detection)
+wiki page for how detection works and how API outages are handled.
 
 ## Lunar event detection
 
-With `events.lunar_enabled: true`, ReoLapse computes real moon events — full
-moon, blue moon, harvest moon, and lunar eclipses — using
-[Skyfield](https://rhodesmill.org/skyfield/) and a local JPL ephemeris
-(`de421.bsp`, ~17 MB, downloaded once into `data/ephemeris/`). **No location
-is required**: a full moon happens at the same instant everywhere on Earth,
-so the phase-based tags (`full-moon`, `blue-moon`, `harvest-moon`) work with
-nothing else configured. This does need a CPU meeting the x86-64-v2 baseline
-(see [Requirements](#requirements)) — on an under-specified VM it fails
-silently, logging `event source failed: NumPy was built with baseline
-optimizations...` while the rest of ReoLapse keeps working normally.
-
-Eclipses are a little more subtle. The eclipse itself is also a geocentric
-event, but *visibility* is not — only the hemisphere facing the Moon at that
-moment can see it. If a location is configured (shared with the weather
-settings), an eclipse is only tagged `blood-moon` (total) or `lunar-eclipse`
-(partial) when the Moon was actually above your horizon for it; without a
-location, every eclipse is tagged unconditionally since there's nothing to
-check visibility against.
-
-Lunar tags are metadata only by default — they don't trigger burst capture.
-Add them to `events_video.tags` if you want an automatic clip, e.g.
-`2026-03-03_blood-moon.mp4`.
+With `events.lunar_enabled: true`, ReoLapse computes real full/blue/harvest
+moons and lunar eclipses locally via Skyfield — no location or API required
+for the phase tags. See the
+[Lunar & Season Tagging](https://github.com/SeriesOfTubez/reolapse/wiki/Lunar-and-Season-Tagging)
+wiki page for eclipse visibility rules and requirements.
 
 ## Forecast tab (what's coming)
 
-The Events tab is backward-looking: clips already cut from storms that
-happened. The **Forecast** tab is its counterpart — the next 10 days of
-storms, snow, and moon events, so you can plan around them.
-
-It is read-only. It never changes what gets captured, never triggers a burst,
-and writes nothing. It exists to answer "is anything worth watching for this
-week?"
-
-### It agrees with what actually gets tagged
-
-A forecast storm means exactly what a detected storm means, because it's the
-same test: the CAPE, gust, and precipitation thresholds under
-[How a storm is detected](#how-a-storm-is-detected) are applied to forecast
-hours instead of the current hour. Retune those thresholds and the Forecast
-tab retunes with them.
-
-The check runs per *hour*, not per day. Open-Meteo also publishes daily
-aggregates, but a day's peak instability and its heaviest rain can be twelve
-hours apart, and pairing them would invent storms that no actual hour
-supports.
-
-### Confidence, and why there's no confidence score
-
-Your day-8 storm is a maybe; tomorrow's is close to a fact. Rather than
-compress that into a number we made up, the tab shows the things the
-forecasts actually said:
-
-- **Probability of precipitation**, straight from the APIs.
-- **Whether the two sources agree.** Open-Meteo and the US National Weather
-  Service are independent forecasts. "Both forecasts agree" is meaningfully
-  stronger than "Open-Meteo only — the NWS forecast doesn't show it", and the
-  tab says which it is.
-- **How far out it is**, both in words ("in 3 days") and as the weight of the
-  stripe down the left edge of each day.
-
-NWS forecasts reach about 7 days; Open-Meteo reaches 10. Days 8-10 therefore
-rest on a single model, and the tab marks them rather than letting them look
-as solid as tomorrow. Outside the US, NWS has no data at all — Open-Meteo
-carries the whole forecast and every day is marked single-source.
-
-Moon events are handled differently on purpose. They're computed from an
-ephemeris, not predicted, so a full moon nine days out is exactly as certain
-as one tomorrow. They get no percentage, no probability bar, and no
-"treat this as a heads-up" caveat — just a solid chip and the note that it's
-calculated rather than forecast.
-
-### Degrading gracefully
-
-These are free services and they hand out 502s, 503s, and timeouts routinely.
-
-- The forecast is cached for 30 minutes, so browsing the UI doesn't hammer
-  them — a page load costs nothing.
-- If a refresh fails, the last good forecast keeps being served, labelled with
-  its age. This matters more than it sounds: a failed fetch produces a
-  perfectly well-formed forecast with *no storms in it*, which is
-  indistinguishable from a genuinely calm week. Serving that would quietly
-  tell you "nothing coming" when the truth is "we couldn't ask" — the same
-  trap `stale_grace_minutes` avoids for live capture.
-- With no location configured, weather is skipped and the tab still shows moon
-  events, with a note explaining what to set.
-
-### Settings
-
-Both live under `events:` in `config.yaml`, and both are editable from the
-Config page:
-
-| Key | Default | What it does |
-| --- | --- | --- |
-| `forecast_days` | `10` | How far ahead to look, 1-10. Set it to `7` to show only days both forecasts cover. |
-| `forecast_snow_cm_min` | `0.5` | Snow across a day before it's worth showing. A dusting that melts on contact makes a dull timelapse. |
-
-The storm thresholds are shared with live detection and documented under
-[How a storm is detected](#how-a-storm-is-detected).
+The **Forecast** tab looks 10 days ahead at storms, snow, and moon events
+using the same detection thresholds as live capture, without a made-up
+confidence score — just what the forecasts actually say and whether the two
+sources agree. See the
+[Forecast Tab](https://github.com/SeriesOfTubez/reolapse/wiki/Forecast-Tab)
+wiki page for the full breakdown.
 
 ## Season tagging
 
-With `events.season_enabled: true`, every frame and video gets tagged with
-its astronomical season (`spring`/`summer`/`fall`/`winter`), computed from
-the real equinox/solstice instants each year via Skyfield — not a fixed
-calendar approximation. No location is required: it defaults to Northern
-Hemisphere seasons, which is right for most current users; set a location if
-you're south of the equator so the tags flip correctly (July is winter
-there, not summer).
-
-Frames get it the same way as weather/lunar tags — a JPEG comment. Videos
-get it as MP4 metadata (`season=summer`), readable with `ffprobe -show_format`
-or exiftool. If you're curious why that needed a nonstandard `ffmpeg` flag:
-the mov/mp4 muxer only writes a fixed whitelist of "known" keys (`comment`,
-`artist`, …) by default and silently drops anything else, including custom
-keys like `season` — `-movflags use_metadata_tags` turns that off.
+With `events.season_enabled: true`, every frame and video is tagged with its
+real astronomical season (computed from the actual equinox/solstice
+instants, hemisphere-aware). See the
+[Lunar & Season Tagging](https://github.com/SeriesOfTubez/reolapse/wiki/Lunar-and-Season-Tagging#season-tagging)
+wiki page for details.
 
 ## PTZ cameras
 
-Add a `ptz_home` block (see `config.example.yaml`). Before each snapshot,
-capture reads `GetPtzCurPos` and compares pan/tilt to the configured home;
-off-home frames go to an `offposition/` subfolder — excluded from videos, still
-pruned normally. Whichever axes the response includes are checked; an NVR
-relays only pan (usually enough). Set `ptz_home.host` to the camera's own IP if
-you need the tilt axis. The check fails open — a position-query error keeps the
-frame.
+For auto-tracking cameras, capture checks each frame's pan/tilt against a
+configured home position and quarantines off-home frames so they don't jerk
+the timelapse. See the
+[PTZ & Night Capture](https://github.com/SeriesOfTubez/reolapse/wiki/PTZ-and-Night-Capture)
+wiki page for setup.
 
 ## Night capture & IR cameras
 
-If a camera relies on IR illumination at night, a 24-hour daily timelapse
-will show a jarring color-to-black-and-white-and-back transition at the start
-and end of every night — deflicker smooths *exposure* flicker, not a full
-color-mode switch. Two ways to avoid it:
-
-- **Disable IR** if the scene has enough ambient light without it (street
-  lights, a porch light, etc.) — the camera stays in color all night, at the
-  cost of more visible sensor noise in the dark. This is the reference
-  deployment's setup and it works well; see the [Weather tagging](#weather-tagging--storm-bursts)
-  and [Lunar event detection](#lunar-event-detection) sections above for why
-  full 24-hour color capture is worth having if you can.
-- **Capture only during daylight** with `capture.daylight_window` if IR needs
-  to stay on. Unlike a fixed `start_time`/`end_time`, this is computed fresh
-  every day from real sunrise/sunset for your location (`events.zip` or
-  `latitude`/`longitude`, independent of whether weather/lunar tagging is
-  enabled), so it tracks the seasons instead of drifting out of sync with
-  them. `buffer_minutes` extends the window a bit past sunrise/sunset on each
-  end, since IR typically doesn't kick in the instant the sun sets — tune it
-  down if you still catch IR frames, or up if you're cutting off usable
-  daylight.
-
-We looked at a third option — asking the camera directly whether it's
-currently in color or IR mode via `GetIsp`'s `dayNight` field — but that
-field is the camera's **configured mode** (`Auto`/`Color`/`Black&White`), not
-a live readout of which one is currently active. For a camera left on
-`Auto` (the normal case), querying it just returns `"Auto"` and tells you
-nothing about the moment-to-moment state, so it can't drive a per-frame
-decision. The sunrise/sunset approach above doesn't have that problem.
-
-### Night-only timelapses (night mode)
-
-Set `capture.daylight_window.mode: night` (with the window `enabled`) to do the
-**opposite** of daylight capture — record only the **dark hours** and skip the
-day. It reuses the same sunrise/sunset math, just inverted; `buffer_minutes`
-trims that much twilight off each end of the night instead of extending it.
-
-Because a night spans midnight, night mode buckets frames by a **noon-to-noon
-day**, so one evening plus the following morning become **one continuous video**
-(labeled by the night's start date) instead of two half-clips split at midnight.
-And since a night isn't finished until dawn, the nightly timer can't build it —
-the **capture service builds each night automatically ~5 minutes after its
-window closes at sunrise**. (A manual build still works:
-`build_timelapse.py daily --date YYYY-MM-DD`.)
-
-Night mode needs a location set (`events.zip` or `latitude`/`longitude`), same
-as the daylight window. Leave `yearly.video_window` empty when using it — a
-daylight-hours filter makes no sense for night frames.
-
-### Per-camera schedules
-
-Everything above can be set **per camera**, so one camera can watch the dark
-hours while the rest shoot daylight — a yard camera logging which animals visit
-overnight, or one framing a moonrise, without changing what the others do:
-
-```yaml
-cameras:
-  - name: wildlife
-    # ...host, credentials, etc...
-    interval_seconds: 300     # optional; falls back to capture.interval_seconds
-    daylight_window:
-      enabled: true
-      mode: night
-      buffer_minutes: 30
-```
-
-Each key falls back to the global `capture.daylight_window` **independently**,
-so `mode: night` alone inherits the global buffer. The two are resolved
-separately, so a camera can enable its own window while the global one is off —
-or set `enabled: false` to opt out while the global one is on.
-
-A night camera builds its own video at **its** dawn, scoped to just that camera;
-the others build on the normal nightly timer. All of this is editable from the
-Config page under each camera's **Capture schedule**.
-
-Note that covering the dark hours roughly **doubles** how long that camera is
-capturing versus daylight-only. `interval_seconds` on the camera is the simplest
-way to hold disk use flat — a night camera at 300s writes a fifth as many frames
-per hour as one at 60s. See [Storage estimates](#storage-estimates).
-
-### Cameras that sit out events
-
-Not every camera can see the weather. One pointed indoors, at a doorway, or
-framed tight on a walkway gains nothing from a storm — the burst frames are just
-disk, and the event clip is a video of nothing happening. Set `events_enabled:
-false` and that camera ignores events entirely:
-
-```yaml
-cameras:
-  - name: front-door
-    # ...host, credentials, etc...
-    events_enabled: false     # default true; omit to participate normally
-```
-
-Two things change for that camera, and nothing else does:
-
-- **No burst capture.** It holds its own `interval_seconds` through a storm
-  instead of dropping to `events.burst_interval_seconds`. The other cameras
-  still burst — the interval is resolved per camera.
-- **No event videos.** The events build skips it, so it produces no
-  `<date>_<tag>.mp4` clips. Its daily and yearly videos are unaffected.
-
-Its frames are **still tagged** either way. The tag is metadata embedded in each
-JPEG, it costs nothing, and keeping it means the frame record stays complete for
-searching and filtering later — it's the capture rate and the video build that
-opt out, not the metadata.
-
-Event clips built *before* you turned this off stay on disk and keep expiring on
-the normal `events_video.retention_days` schedule — turning this off stops new
-clips, it doesn't delete old ones. (Rebuilding one of those past dates with
-`build_timelapse.py events --date ...` does drop that camera's clips for that
-date from the Events list, since the rebuild replaces the whole day's entries.)
-
-Editable from the Config page under each camera's **Weather events**.
+IR cameras cause a jarring color-to-black-and-white transition twice a day in
+a 24-hour timelapse. ReoLapse can capture daylight-only (or night-only) on a
+schedule computed fresh from real sunrise/sunset, per camera if needed. See
+the
+[PTZ & Night Capture](https://github.com/SeriesOfTubez/reolapse/wiki/PTZ-and-Night-Capture#night-capture--ir-cameras)
+wiki page for the daylight/night-mode options and per-camera schedules.
 
 ## Security
 
-- **There is no authentication.** The web UI has no login, no access control,
-  nothing — anyone who can reach port 8080 can browse and download every
-  video. **ReoLapse is a private, LAN-only tool. Do not port-forward it or
-  otherwise expose it to the internet.** If you need remote access, put it on
-  a VPN (Tailscale, WireGuard) or behind a reverse proxy that adds its own
-  auth and TLS — don't rely on ReoLapse itself for either. This was a
-  deliberate design choice, not an oversight: ReoLapse was built to run on
-  your home network, so authentication was not a priority for MVP release.
-  It may get added later if there's enough demand — open an issue if that's
-  you.
-- **The Config page can write `config.yaml` and scan your network — the
-  no-auth warning above applies doubly to it.** Anyone who can reach the app
-  can reconfigure your cameras or trigger a network scan; on an open install
-  the LAN-only posture is what protects this, not anything in the app itself.
-  The write endpoint does reject literal passwords (only `${VAR}` references
-  are accepted) and validates structure before touching the file, and its
-  `Content-Type: application/json` requirement means a plain cross-origin
-  `<form>` POST from some other site can't trigger it — but a malicious page
-  making a same-network JSON `fetch()` still could, same as it could hit any
-  other unauthenticated route here.
-- **Optional Config-page passcode.** You can put a single passcode (no
-  username) in front of the Config page and its write/scan endpoints
-  (`/api/config`, `/api/discover`, `/api/discover/identify`, `/api/restart`)
-  while video browsing stays open for casual LAN viewing. It's **opt-in**:
-  set it from the Config page itself under **Config page access** (or remove
-  it there later). Details:
-  - The passcode is stored only as a **salted scrypt hash** in `config.yaml`
-    (`webapp.config_passcode_hash`) — never in the clear, and never sent to
-    the browser. A hash is safe to keep there because, unlike a camera
-    password, it never needs to be reversed.
-  - A successful login sets an `HttpOnly`, `SameSite=Lax` session cookie
-    (server-side token, 12-hour expiry). `SameSite=Lax` keeps the cookie off
-    cross-site POST/`fetch`, so a malicious off-origin page can't ride your
-    session to the write endpoints. Restarting the web service or changing
-    the passcode logs every session out.
-  - There's a modest failed-login throttle. This is a convenience gate for a
-    trusted LAN, **not** a substitute for the VPN/reverse-proxy guidance
-    above — the cookie rides over plain HTTP since ReoLapse serves no TLS.
-- Credentials live in `.env` (gitignored), never in `config.yaml`.
-- Prefer a **dedicated, least-privilege** camera/NVR account for ReoLapse. The
-  Snap API passes credentials as URL parameters, so avoid `&`, `#`, `%` in that
-  password.
-- The bundled Flask server is a dev-grade WSGI server — fine for a trusted
-  LAN, not a hardened production server.
+**There is no authentication.** The web UI has no login — anyone who can
+reach port 8080 can browse and download every video, and the Config page can
+rewrite `config.yaml`. **ReoLapse is a LAN-only tool — do not expose it to
+the internet.** An optional passcode can gate the Config page (video browsing
+stays open); see the
+[Security](https://github.com/SeriesOfTubez/reolapse/wiki/Security)
+wiki page for the full threat model, what the passcode does and doesn't
+protect, and VPN/reverse-proxy guidance for remote access.
 
 ## AI-assisted development
 
