@@ -14,6 +14,16 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   every push/PR to `main`).
 
 ### Added
+- **Per-camera event opt-out.** A camera can now set `events_enabled: false` to
+  ignore weather/lunar events entirely — it holds its own `interval_seconds`
+  through a storm instead of dropping to `events.burst_interval_seconds`, and no
+  event clips are built from its frames. For a camera the weather isn't visible
+  from (indoors, a doorway, a tight framing) the burst frames are just disk and
+  the clip is a video of nothing happening. The burst interval is now resolved
+  **per camera**, so the rest of the setup still bursts normally. Frames are
+  still tagged either way, so the metadata stays complete for the search/filter
+  features built on it. Defaults to true; existing configs are unaffected.
+  Editable from the Config page under each camera's **Weather events**.
 - **Per-camera capture schedules.** A camera can now set its own
   `daylight_window` (`enabled`/`mode`/`buffer_minutes`) and `interval_seconds`,
   each falling back to the global `capture` settings independently. This lets a

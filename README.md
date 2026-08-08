@@ -340,6 +340,7 @@ not: reference them as `${VAR}` and put the values in `.env`. Highlights:
 | `cameras[].ptz_home` | Quarantine frames taken off a PTZ camera's home position |
 | `cameras[].daylight_window` | Per-camera day/night schedule; each key falls back to `capture.daylight_window` — see [Per-camera schedules](#per-camera-schedules) |
 | `cameras[].interval_seconds` | Per-camera capture cadence; falls back to `capture.interval_seconds` |
+| `cameras[].events_enabled` | `false` makes a camera ignore events entirely — no burst capture, no event clips (default `true`) — see [Cameras that sit out events](#cameras-that-sit-out-events) |
 | `capture.timezone` | IANA timezone for capture timing/day boundaries; blank auto-detects from location, else falls back to the host clock |
 | `capture.interval_seconds` | Base capture cadence (default 60, minimum 10) |
 | `capture.start_time`/`end_time` | Optional fixed daily capture window |
@@ -678,6 +679,41 @@ Note that covering the dark hours roughly **doubles** how long that camera is
 capturing versus daylight-only. `interval_seconds` on the camera is the simplest
 way to hold disk use flat — a night camera at 300s writes a fifth as many frames
 per hour as one at 60s. See [Storage estimates](#storage-estimates).
+
+### Cameras that sit out events
+
+Not every camera can see the weather. One pointed indoors, at a doorway, or
+framed tight on a walkway gains nothing from a storm — the burst frames are just
+disk, and the event clip is a video of nothing happening. Set `events_enabled:
+false` and that camera ignores events entirely:
+
+```yaml
+cameras:
+  - name: front-door
+    # ...host, credentials, etc...
+    events_enabled: false     # default true; omit to participate normally
+```
+
+Two things change for that camera, and nothing else does:
+
+- **No burst capture.** It holds its own `interval_seconds` through a storm
+  instead of dropping to `events.burst_interval_seconds`. The other cameras
+  still burst — the interval is resolved per camera.
+- **No event videos.** The events build skips it, so it produces no
+  `<date>_<tag>.mp4` clips. Its daily and yearly videos are unaffected.
+
+Its frames are **still tagged** either way. The tag is metadata embedded in each
+JPEG, it costs nothing, and keeping it means the frame record stays complete for
+searching and filtering later — it's the capture rate and the video build that
+opt out, not the metadata.
+
+Event clips built *before* you turned this off stay on disk and keep expiring on
+the normal `events_video.retention_days` schedule — turning this off stops new
+clips, it doesn't delete old ones. (Rebuilding one of those past dates with
+`build_timelapse.py events --date ...` does drop that camera's clips for that
+date from the Events list, since the rebuild replaces the whole day's entries.)
+
+Editable from the Config page under each camera's **Weather events**.
 
 ## Security
 
