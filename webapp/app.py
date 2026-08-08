@@ -58,6 +58,9 @@ REQUIRED_SECTIONS = ("capture", "storage", "daily_video", "yearly")
 # Keep in sync with capture.py's MIN_INTERVAL_SECONDS — the floor on poll rate.
 MIN_INTERVAL_SECONDS = 10
 
+# Keep in sync with forecast.py's MAX_FORECAST_DAYS — Open-Meteo's ceiling.
+MAX_FORECAST_DAYS = 10
+
 # --- Config-page authentication --------------------------------------------
 # A single optional passcode (no username) gates the Config page and its
 # write/scan endpoints. It's opt-in: with no passcode set, everything behaves
@@ -213,7 +216,8 @@ def validate_config(cfg):
     # Storm-detection thresholds: any non-negative number. A bad value here
     # would otherwise fail open (fall back to the default) and quietly not do
     # what the user asked.
-    for key in ("storm_cape_min", "storm_precip_mm", "storm_gust_kmh", "stale_grace_minutes"):
+    for key in ("storm_cape_min", "storm_precip_mm", "storm_gust_kmh",
+                "stale_grace_minutes", "forecast_snow_cm_min"):
         val = (cfg.get("events") or {}).get(key)
         if val is None:
             continue
@@ -221,6 +225,16 @@ def validate_config(cfg):
             problems.append(f"events.{key} must be a number")
         elif val < 0:
             problems.append(f"events.{key} must not be negative")
+
+    # The Forecast tab's window. Open-Meteo serves 10 days and no more, so a
+    # larger number would silently be clamped rather than do what was asked.
+    days = (cfg.get("events") or {}).get("forecast_days")
+    if days is not None:
+        if isinstance(days, bool) or not isinstance(days, int):
+            problems.append("events.forecast_days must be a whole number")
+        elif not 1 <= days <= MAX_FORECAST_DAYS:
+            problems.append(f"events.forecast_days must be between 1 and {MAX_FORECAST_DAYS} "
+                            "(the forecast APIs don't reach further out)")
 
     # Minimum poll interval — faster than this risks overloading the camera/NVR.
     for path, val in (("capture.interval_seconds", (cfg.get("capture") or {}).get("interval_seconds")),
@@ -480,6 +494,31 @@ def create_app(cfg, config_path=None):
         # Polled by the UI to show a "building videos…" indicator. Cheap: reads
         # one small JSON file the build process writes.
         return jsonify(read_build_status(state["cfg"]))
+
+    @app.get("/api/forecast")
+    def forecast_upcoming():
+        """Upcoming storm/snow/moon events for the Forecast tab.
+
+        Cached in forecast.py (30 min), so a page load costs nothing and the
+        free weather APIs aren't hammered. Degrades rather than fails: no
+        location or a dead API still returns 200 with the moon events and a
+        warning, because a half-forecast is worth showing.
+        """
+        import forecast as forecast_mod
+        cfg = state["cfg"]
+        configured = (cfg.get("events") or {}).get("forecast_days")
+        try:
+            days = int(request.args.get(
+                "days", configured or forecast_mod.DEFAULT_FORECAST_DAYS))
+        except (TypeError, ValueError):
+            days = forecast_mod.DEFAULT_FORECAST_DAYS
+        cache_dir = Path(cfg["storage"]["root"]) / "ephemeris"
+        try:
+            return jsonify(forecast_mod.get_forecast(cfg, cache_dir, days))
+        except Exception as exc:
+            # Only reached when there's nothing cached to fall back on either.
+            return jsonify({"error": f"forecast unavailable: {exc}", "days": [],
+                            "warnings": [], "sources": {}}), 503
 
     @app.get("/api/storage")
     def storage():
