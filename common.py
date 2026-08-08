@@ -142,6 +142,23 @@ def camera_interval_seconds(cfg, cam, minimum=10) -> int:
     return max(minimum, value)
 
 
+def camera_events_enabled(cfg, cam) -> bool:
+    """Whether a camera participates in weather/lunar events at all.
+
+    False means it ignores them entirely: it holds its own interval through a
+    burst instead of speeding up, and no event videos are built from its
+    frames. That's the right setting for a camera the weather isn't visible
+    from — indoors, a doorway, a tight framing — where burst frames are just
+    disk and an event clip is a video of nothing happening.
+
+    Defaults to True; omit the key to participate normally. Takes cfg for
+    signature symmetry with the other per-camera helpers (there's no global
+    counterpart to fall back to — events are configured under `events`).
+    """
+    value = cam.get("events_enabled")
+    return True if value is None else bool(value)
+
+
 def build_status_path(cfg) -> Path:
     return cfg["storage"]["root"] / "build_status.json"
 

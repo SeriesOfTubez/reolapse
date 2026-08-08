@@ -24,8 +24,9 @@ import tempfile
 import time
 from pathlib import Path
 
-from common import (build_status_path, load_config, local_today, snapshots_dir,
-                    tzinfo_for, videos_dir, yearly_frames_dir)
+from common import (build_status_path, camera_events_enabled, load_config,
+                    local_today, snapshots_dir, tzinfo_for, videos_dir,
+                    yearly_frames_dir)
 
 log = logging.getLogger("timelapse")
 
@@ -454,6 +455,9 @@ def build_event_videos(cfg, date, camera=None):
     season = season_metadata(cfg, date)
 
     for cam in selected_cameras(cfg, camera):
+        if not camera_events_enabled(cfg, cam):
+            log.info("%s: events_enabled is false, skipping event videos", cam["name"])
+            continue
         all_frames = day_frames(cfg, cam["name"], date)
         for tag in tags:
             for i, (start, end) in enumerate(tag_spans(cfg, date, tag)):
