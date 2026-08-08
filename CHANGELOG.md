@@ -14,6 +14,25 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   every push/PR to `main`).
 
 ### Added
+- **Forecast tab: upcoming storms, snow, and moon events.** The counterpart to
+  the backward-looking Events tab — the next 10 days of what's worth pointing a
+  camera at, so you can plan for a storm instead of finding out afterwards.
+  Storms are detected by applying the *same* CAPE/gust/precipitation thresholds
+  used for live tagging to forecast hours, so a forecast storm means what a
+  detected storm means; retuning the thresholds retunes both. The check runs per
+  hour rather than per day, since a day's peak instability and its heaviest rain
+  can be twelve hours apart and pairing them would invent storms no real hour
+  supports. Rather than invent a confidence score, the tab surfaces what the
+  forecasts actually said: probability of precipitation, whether Open-Meteo and
+  the NWS agree, and how far out the day is. NWS reaches ~7 days and Open-Meteo
+  10, so days 8-10 are marked single-source instead of looking as solid as
+  tomorrow. Moon events are computed rather than predicted, so they carry no
+  percentage and no uncertainty caveat. New `GET /api/forecast`, cached 30
+  minutes; a failed refresh keeps serving the last good forecast labelled with
+  its age, because an empty forecast built during an outage is indistinguishable
+  from a genuinely calm week. Degrades to moon-events-only with no location
+  configured, and works outside the US on Open-Meteo alone. Configurable via
+  `events.forecast_days` (1-10) and `events.forecast_snow_cm_min`.
 - **Per-camera capture schedules.** A camera can now set its own
   `daylight_window` (`enabled`/`mode`/`buffer_minutes`) and `interval_seconds`,
   each falling back to the global `capture` settings independently. This lets a

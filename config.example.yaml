@@ -210,6 +210,19 @@ events:
                               # "all clear". Stops a blip ending a burst
                               # mid-storm. Default: 3 polls.
 
+  # The web UI's Forecast tab — upcoming storms, snow, and moon events. It is
+  # read-only and never affects capture. The same thresholds above decide what
+  # counts as a forecast storm, so what it predicts agrees with what actually
+  # gets tagged. Weather needs a location; moon events need none.
+  forecast_days: 10           # how far ahead the Forecast tab looks, 1-10.
+                              # Open-Meteo reaches 10 days; the NWS forecast
+                              # used to corroborate it only reaches about 7, so
+                              # days 8-10 rest on a single model and say so.
+  forecast_snow_cm_min: 0.5   # cm of snow across a day before it's worth
+                              # showing. A dusting that melts on contact makes
+                              # a dull timelapse; this is roughly "you can see
+                              # it settling".
+
 events_video:
   tags: [storm, snow]         # render a clip per active span of these tags
   min_frames: 30

@@ -307,6 +307,103 @@
     font-size: var(--fs-xs);
   }
 
+  /* --- Forecast tab -------------------------------------------------- */
+  #forecast-view { width: 100%; max-width: 760px; }
+  .fc-head { margin-bottom: var(--space-4); }
+  .fc-title { font-size: var(--fs-lg); font-weight: var(--fw-semibold); }
+  .fc-sub { color: var(--text-2); font-size: var(--fs-sm); margin-top: var(--space-1); }
+  .fc-note {
+    margin-bottom: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    background: var(--accent-quiet);
+    color: var(--accent);
+    font-size: var(--fs-sm);
+  }
+  .fc-days { display: flex; flex-direction: column; gap: var(--space-2); }
+
+  .fc-day {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    /* Lead time is encoded on this edge — see .lead-* below. */
+    border-left-width: 3px;
+    border-radius: var(--radius-md);
+  }
+  .fc-day > summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    cursor: pointer;
+    list-style: none;
+  }
+  .fc-day > summary::-webkit-details-marker { display: none; }
+  .fc-day > summary:hover { background: var(--surface-2); border-radius: var(--radius-md); }
+  .fc-day[open] > summary { border-radius: var(--radius-md) var(--radius-md) 0 0; }
+  .fc-day.quiet {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-4);
+    background: none;
+    color: var(--text-3);
+  }
+  .fc-date { min-width: 108px; font-size: var(--fs-sm); font-weight: var(--fw-medium); }
+  .fc-date b { color: var(--text-1); }
+  .fc-day.quiet .fc-date { font-weight: var(--fw-regular); }
+  .fc-when { min-width: 76px; color: var(--text-3); font-size: var(--fs-xs); }
+  .fc-nothing { color: var(--text-3); font-size: var(--fs-xs); }
+  .fc-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); flex: 1; }
+
+  /* Confidence is carried by this border: near days read solid, far days
+     faint. Deliberately the ONLY invented signal — everything numeric on the
+     card comes straight from the forecast APIs. */
+  .fc-day.lead-near { border-left-color: var(--accent); }
+  .fc-day.lead-mid  { border-left-color: var(--border-strong); }
+  .fc-day.lead-far  { border-left-color: var(--border); }
+
+  .fc-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 3px var(--space-3);
+    border-radius: var(--radius-pill);
+    font-size: var(--fs-xs);
+    border: 1px solid var(--border-strong);
+    white-space: nowrap;
+  }
+  .fc-chip .pct { font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; }
+  .fc-chip-storm { border-color: #e5a34b; color: #f0b86a; background: rgba(229, 163, 75, 0.12); }
+  .fc-chip-snow  { border-color: #7fb6e8; color: #9ccbf2; background: rgba(127, 182, 232, 0.12); }
+  /* Moon events are computed, not predicted — a filled chip with no
+     percentage, so they never read as "probably". */
+  .fc-chip-moon {
+    border-color: #c9cdd4; color: var(--surface-0);
+    background: #c9cdd4; font-weight: var(--fw-medium);
+  }
+
+  .fc-body {
+    padding: 0 var(--space-4) var(--space-3) var(--space-4);
+    border-top: 1px solid var(--border);
+    padding-top: var(--space-3);
+  }
+  .fc-event { font-size: var(--fs-sm); margin-bottom: var(--space-3); }
+  .fc-event:last-child { margin-bottom: 0; }
+  .fc-event-head { font-weight: var(--fw-medium); margin-bottom: var(--space-1); }
+  .fc-event-line { color: var(--text-2); font-size: var(--fs-xs); }
+  .fc-meter {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--surface-2);
+    margin: var(--space-2) 0;
+    max-width: 240px;
+    overflow: hidden;
+  }
+  .fc-meter > span { display: block; height: 100%; background: var(--accent); }
+  .fc-agree { color: var(--text-2); font-size: var(--fs-xs); }
+  .fc-certain { color: #c9cdd4; font-size: var(--fs-xs); }
+  .fc-footnote { margin-top: var(--space-4); color: var(--text-3); font-size: var(--fs-xs); }
+
   #cfg-view { width: 100%; max-width: 720px; }
   .cfg-section {
     background: var(--surface-1);
@@ -457,6 +554,14 @@
       order: 2;
     }
     #content-col { order: 1; }
+
+    /* The forecast summary row is date + relative day + chips, which needs
+       more than a phone's width. Let it wrap onto a second line and drop the
+       alignment columns, rather than overflow the card. */
+    .fc-day > summary, .fc-day.quiet { flex-wrap: wrap; }
+    .fc-date { min-width: 0; }
+    .fc-when { min-width: 0; }
+    .fc-chips { flex-basis: 100%; }
   }
 </style>
 </head>
@@ -472,6 +577,7 @@
     <button class="pill active" data-type="daily">Daily</button>
     <button class="pill" data-type="yearly">Yearly</button>
     <button class="pill" data-type="events">Events</button>
+    <button class="pill" data-type="forecast">Forecast</button>
     <button class="pill" data-type="storage">Storage</button>
     <button class="pill" data-type="config">Config</button>
   </div>
@@ -531,6 +637,7 @@ function refresh() {
     document.getElementById("cfg-footer").classList.remove("visible");
   }
   if (state.type === "storage") renderStorage();
+  else if (state.type === "forecast") renderForecast();
   else if (state.type === "config") renderConfig();
   else renderList();
 }
@@ -645,6 +752,206 @@ function play(v, itemEl) {
 
 function fmtGB(n) {
   return n >= 1 ? n.toFixed(2) + " GB" : Math.round(n * 1024) + " MB";
+}
+
+// --- Forecast tab ----------------------------------------------------------
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+const FC_LABELS = {
+  storm: "Thunderstorms", snow: "Snow",
+  "full-moon": "Full moon", "blue-moon": "Blue moon",
+  "harvest-moon": "Harvest moon", "blood-moon": "Blood moon",
+  "lunar-eclipse": "Lunar eclipse",
+};
+
+// How each `agreement` value reads in plain English. These describe what the
+// sources actually said — we deliberately don't collapse them into an invented
+// "confidence: 73%" score, because that number would be ours, not the
+// forecast's. Lead time is shown separately and speaks for itself.
+const FC_AGREEMENT = {
+  both: "Both forecasts agree",
+  "open-meteo-only": "Open-Meteo only — the NWS forecast doesn't show it",
+  "nws-only": "NWS only — Open-Meteo doesn't show it",
+  "single-source": "One forecast only — beyond the NWS 7-day range",
+};
+
+function fcIsMoon(kind) { return kind !== "storm" && kind !== "snow"; }
+
+function fcChip(ev) {
+  const kindClass = ev.kind === "storm" ? "storm" : ev.kind === "snow" ? "snow" : "moon";
+  const span = document.createElement("span");
+  span.className = `fc-chip fc-chip-${kindClass}`;
+  const label = FC_LABELS[ev.kind] || ev.kind;
+  // Moon events carry no percentage on purpose — they're computed, not
+  // predicted, so a probability would be a lie.
+  span.innerHTML = ev.probability != null && !ev.certain
+    ? `${label} <span class="pct">${ev.probability}%</span>`
+    : label;
+  return span;
+}
+
+function fcDayLabel(iso, leadDays) {
+  // Parse as a plain local date — new Date("2026-08-09") would be parsed as
+  // UTC midnight and can render as the previous day west of Greenwich.
+  const [y, m, d] = iso.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  const when = leadDays === 0 ? "today" : leadDays === 1 ? "tomorrow" : `in ${leadDays} days`;
+  return {
+    label: `<b>${DAY_NAMES[date.getDay()]}</b> ${MONTH_NAMES[m - 1]} ${d}`,
+    when,
+  };
+}
+
+function fcEventDetail(ev) {
+  const wrap = document.createElement("div");
+  wrap.className = "fc-event";
+
+  const head = document.createElement("div");
+  head.className = "fc-event-head";
+  head.textContent = ev.headline || FC_LABELS[ev.kind] || ev.kind;
+  wrap.appendChild(head);
+
+  if (ev.certain) {
+    const line = document.createElement("div");
+    line.className = "fc-certain";
+    line.textContent = "Certain — calculated from orbital mechanics, not forecast";
+    wrap.appendChild(line);
+    return wrap;
+  }
+
+  if (ev.window) {
+    const line = document.createElement("div");
+    line.className = "fc-event-line";
+    line.textContent = `Expected around ${ev.window}`;
+    wrap.appendChild(line);
+  }
+  if (ev.detail) {
+    const line = document.createElement("div");
+    line.className = "fc-event-line";
+    line.textContent = ev.detail;
+    wrap.appendChild(line);
+  }
+  if (ev.peak_cape) {
+    const line = document.createElement("div");
+    line.className = "fc-event-line";
+    line.textContent = `Peak instability ${ev.peak_cape} J/kg · peak gusts ${ev.peak_gust} km/h`;
+    wrap.appendChild(line);
+  }
+  if (ev.probability != null) {
+    const meter = document.createElement("div");
+    meter.className = "fc-meter";
+    meter.innerHTML = `<span style="width:${Math.max(2, Math.min(100, ev.probability))}%"></span>`;
+    wrap.appendChild(meter);
+    const line = document.createElement("div");
+    line.className = "fc-event-line";
+    line.textContent = `${ev.probability}% chance of precipitation`;
+    wrap.appendChild(line);
+  }
+  const agree = document.createElement("div");
+  agree.className = "fc-agree";
+  agree.textContent = FC_AGREEMENT[ev.agreement] || "";
+  wrap.appendChild(agree);
+  return wrap;
+}
+
+async function renderForecast() {
+  document.getElementById("sidebar").innerHTML = "";
+  const area = document.getElementById("player-area");
+  area.innerHTML = `<div id="empty">Loading forecast&hellip;</div>`;
+
+  let data;
+  try {
+    const res = await fetch("/api/forecast");
+    data = await res.json();
+    if (data.error) throw new Error(data.error);
+  } catch (err) {
+    area.innerHTML = `<div id="empty">Forecast unavailable.<br>${err.message}</div>`;
+    return;
+  }
+
+  const view = document.createElement("div");
+  view.id = "forecast-view";
+
+  const nDays = (data.days || []).length;
+  const generated = data.generated_at
+    ? new Date(data.generated_at).toLocaleString([], {month: "short", day: "numeric",
+                                                     hour: "numeric", minute: "2-digit"})
+    : "unknown";
+  const head = document.createElement("div");
+  head.className = "fc-head";
+  head.innerHTML = `<div class="fc-title">Next ${nDays} days</div>
+    <div class="fc-sub">${data.timezone || "local time"} &middot; updated ${generated}</div>`;
+  view.appendChild(head);
+
+  if (data.stale) {
+    const note = document.createElement("div");
+    note.className = "fc-note";
+    note.textContent = `The weather services aren't responding right now, so this is the `
+      + `last forecast that came through — about ${data.stale_minutes} minutes old.`;
+    view.appendChild(note);
+  }
+  (data.warnings || []).forEach(w => {
+    const note = document.createElement("div");
+    note.className = "fc-note";
+    note.textContent = w;
+    view.appendChild(note);
+  });
+
+  const list = document.createElement("div");
+  list.className = "fc-days";
+  (data.days || []).forEach(day => {
+    const {label, when} = fcDayLabel(day.date, day.lead_days);
+    const leadClass = day.lead_days <= 2 ? "lead-near" : day.lead_days <= 6 ? "lead-mid" : "lead-far";
+
+    if (!day.events.length) {
+      const row = document.createElement("div");
+      row.className = "fc-day quiet";
+      row.innerHTML = `<span class="fc-date">${label}</span>
+        <span class="fc-when">${when}</span>
+        <span class="fc-nothing">nothing expected</span>`;
+      list.appendChild(row);
+      return;
+    }
+
+    const det = document.createElement("details");
+    det.className = `fc-day ${leadClass}`;
+    // Near-term days with something happening open by default — that's the
+    // part you'd actually act on.
+    det.open = day.lead_days <= 2;
+    const summary = document.createElement("summary");
+    summary.innerHTML = `<span class="fc-date">${label}</span><span class="fc-when">${when}</span>`;
+    const chips = document.createElement("span");
+    chips.className = "fc-chips";
+    day.events.forEach(ev => chips.appendChild(fcChip(ev)));
+    summary.appendChild(chips);
+    det.appendChild(summary);
+
+    const body = document.createElement("div");
+    body.className = "fc-body";
+    day.events.forEach(ev => body.appendChild(fcEventDetail(ev)));
+    if (!day.nws_covered && day.events.some(e => !fcIsMoon(e.kind))) {
+      const line = document.createElement("div");
+      line.className = "fc-agree";
+      line.textContent = "This far out only one forecast model reaches, so treat it as a heads-up "
+        + "rather than a plan — it should firm up over the next few days.";
+      body.appendChild(line);
+    }
+    det.appendChild(body);
+    list.appendChild(det);
+  });
+  view.appendChild(list);
+
+  if (data.next_full_moon) {
+    const foot = document.createElement("div");
+    foot.className = "fc-footnote";
+    const [y, m, d] = data.next_full_moon.date.split("-").map(Number);
+    foot.textContent = `Next full moon after this window: ${MONTH_NAMES[m - 1]} ${d}, `
+      + `${data.next_full_moon.days_away} days past the last day shown.`;
+    view.appendChild(foot);
+  }
+
+  area.innerHTML = "";
+  area.appendChild(view);
 }
 
 async function renderStorage() {
@@ -878,6 +1185,7 @@ function numberField(path, opts) {
   input.type = "number";
   if (opts.step) input.step = opts.step;
   if (opts.min != null) input.min = opts.min;
+  if (opts.max != null) input.max = opts.max;
   input.value = cfgGet(path, opts.default != null ? opts.default : 0);
   input.oninput = () => cfgSet(path, input.value === "" ? null : parseFloat(input.value));
   return input;
@@ -1759,6 +2067,29 @@ function buildEventsSection() {
     + "single failed check ends a storm burst early. Set 0 to disable.",
     numberField("events.stale_grace_minutes", {default: 15, min: 0})));
   sec.appendChild(tuning);
+
+  const fc = document.createElement("div");
+  fc.className = "cfg-subsection";
+  const fh = document.createElement("h4");
+  fh.textContent = "Forecast tab";
+  fc.appendChild(fh);
+  const fintro = document.createElement("div");
+  fintro.className = "cfg-hint-block";
+  fintro.textContent = "The Forecast tab shows storms, snow, and moon events coming up. It only reads "
+    + "forecasts — it never changes what gets captured. The thresholds above decide what counts as a "
+    + "forecast storm too, so what it predicts matches what actually gets tagged.";
+  fc.appendChild(fintro);
+
+  fc.appendChild(fieldRow("Days ahead",
+    "How far ahead to look, up to 10. Open-Meteo forecasts 10 days out; the US National Weather "
+    + "Service forecast used to double-check it only reaches about 7, so days 8-10 rest on a single "
+    + "model — the tab marks those days rather than pretending they're as solid as tomorrow.",
+    numberField("events.forecast_days", {default: 10, min: 1, max: 10})));
+  fc.appendChild(fieldRow("Minimum snow (cm)",
+    "How much snow has to be expected across a day before it's worth showing. A dusting that melts "
+    + "on contact makes a dull timelapse; the default is roughly \"you can see it settling\".",
+    numberField("events.forecast_snow_cm_min", {default: 0.5, min: 0, step: "0.1"})));
+  sec.appendChild(fc);
 
   return sec;
 }
