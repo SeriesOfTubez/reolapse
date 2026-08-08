@@ -170,6 +170,21 @@ def validate_config(cfg):
                     f"like \"${{VAR_NAME}}\" (never a literal secret) — set the real "
                     f"value in .env. Got: {pw!r}"
                 )
+            cam_dl = cam.get("daylight_window")
+            if cam_dl is not None and not isinstance(cam_dl, dict):
+                problems.append(f"cameras[{i}].daylight_window must be a mapping")
+            elif cam_dl:
+                mode = cam_dl.get("mode")
+                if mode is not None and str(mode).strip().lower() not in ("day", "night"):
+                    problems.append(f'cameras[{i}].daylight_window.mode must be "day" or "night"')
+            cam_interval = cam.get("interval_seconds")
+            if cam_interval is not None:
+                if isinstance(cam_interval, bool) or not isinstance(cam_interval, (int, float)):
+                    problems.append(f"cameras[{i}].interval_seconds must be a number")
+                elif cam_interval < MIN_INTERVAL_SECONDS:
+                    problems.append(
+                        f"cameras[{i}].interval_seconds must be at least {MIN_INTERVAL_SECONDS} "
+                        "(faster polling risks overloading the camera/NVR)")
 
     for section in REQUIRED_SECTIONS:
         if not isinstance(cfg.get(section), dict):

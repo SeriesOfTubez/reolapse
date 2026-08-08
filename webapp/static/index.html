@@ -326,6 +326,24 @@
     margin-bottom: var(--space-3);
     line-height: 1.5;
   }
+  /* Nested group inside a camera card (e.g. its capture schedule). */
+  .cfg-subsection {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: var(--space-3);
+    margin-top: var(--space-3);
+  }
+  .cfg-subsection h4 {
+    margin: 0 0 var(--space-2) 0;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+  }
+  .cfg-subsection .cfg-hint-block {
+    color: var(--text-2);
+    font-size: var(--fs-xs);
+    margin-bottom: var(--space-2);
+    line-height: 1.5;
+  }
   .cfg-row {
     display: flex;
     align-items: flex-start;
@@ -1283,6 +1301,8 @@ function renderCameraCards(list) {
       + "which would otherwise always fail this check.",
       checkboxField(`cameras.${i}.verify_ssl`, {default: false})));
 
+    card.appendChild(buildCameraScheduleSection(i));
+
     if (cam.ptz_home) {
       const hint = document.createElement("div");
       hint.className = "cfg-hint";
@@ -1295,6 +1315,63 @@ function renderCameraCards(list) {
 
     list.appendChild(card);
   });
+}
+
+// Per-camera capture schedule. Each field falls back to the global setting, so
+// the defaults shown here are the global ones — what this camera does today.
+// Touching a field pins it for this camera only.
+function buildCameraScheduleSection(i) {
+  const gEnabled = cfgGet("capture.daylight_window.enabled", false);
+  const gMode = cfgGet("capture.daylight_window.mode", "day");
+  const gBuffer = cfgGet("capture.daylight_window.buffer_minutes", 0);
+  const gInterval = cfgGet("capture.interval_seconds", 60);
+
+  const box = document.createElement("div");
+  box.className = "cfg-subsection";
+  const heading = document.createElement("h4");
+  heading.textContent = "Capture schedule";
+  box.appendChild(heading);
+  const intro = document.createElement("div");
+  intro.className = "cfg-hint-block";
+  intro.textContent = "These start out following the global capture settings. Change one and it "
+    + "applies to this camera only — useful for pointing a single camera at the dark hours "
+    + "(overnight wildlife, a moonrise) while the rest keep shooting daylight.";
+  box.appendChild(intro);
+
+  box.appendChild(fieldRow("Auto daylight window",
+    "Capture around real sunrise/sunset for this camera instead of a fixed clock window. "
+    + `Global setting is currently ${gEnabled ? "on" : "off"}.`,
+    checkboxField(`cameras.${i}.daylight_window.enabled`, {default: gEnabled})));
+
+  const modeRow = fieldRow("Window mode",
+    "\"day\" captures during daylight; \"night\" captures the opposite — the dark hours only. "
+    + "A night spans midnight and is saved as one continuous video (built automatically ~5 min "
+    + "after this camera's dawn window closes), so night videos aren't cut off at midnight.",
+    selectField(`cameras.${i}.daylight_window.mode`, ["day", "night"], {default: gMode}));
+  box.appendChild(modeRow);
+
+  const bufferRow = fieldRow("Daylight buffer (minutes)",
+    "In day mode, widens the window by this many minutes each side (start before sunrise, stop "
+    + "after sunset). In night mode it's the inverse — trims that much twilight off each end.",
+    numberField(`cameras.${i}.daylight_window.buffer_minutes`, {default: gBuffer, min: 0}));
+  box.appendChild(bufferRow);
+
+  box.appendChild(fieldRow("Capture interval (seconds)",
+    "How often to grab a frame from this camera. A night camera covering the dark hours adds "
+    + "roughly as many hours again as a daytime one, so a slower interval here is the simplest "
+    + `way to keep disk growth flat. Global setting is ${gInterval}s; minimum is 10s.`,
+    numberField(`cameras.${i}.interval_seconds`, {default: gInterval, min: 10})));
+
+  // Mode and buffer only mean anything while the daylight window is on.
+  const syncVisibility = (on) => {
+    modeRow.style.display = on ? "" : "none";
+    bufferRow.style.display = on ? "" : "none";
+  };
+  syncVisibility(cfgGet(`cameras.${i}.daylight_window.enabled`, gEnabled));
+  const toggle = box.querySelector('input[type="checkbox"]');
+  if (toggle) toggle.addEventListener("change", () => syncVisibility(toggle.checked));
+
+  return box;
 }
 
 function buildDiscoverySection(cameraList) {
