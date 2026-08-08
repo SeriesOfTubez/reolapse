@@ -338,6 +338,8 @@ not: reference them as `${VAR}` and put the values in `.env`. Highlights:
 |---|---|
 | `cameras[].host` / `channel` | Camera IP + `0`, or NVR IP + channel number |
 | `cameras[].ptz_home` | Quarantine frames taken off a PTZ camera's home position |
+| `cameras[].daylight_window` | Per-camera day/night schedule; each key falls back to `capture.daylight_window` — see [Per-camera schedules](#per-camera-schedules) |
+| `cameras[].interval_seconds` | Per-camera capture cadence; falls back to `capture.interval_seconds` |
 | `capture.timezone` | IANA timezone for capture timing/day boundaries; blank auto-detects from location, else falls back to the host clock |
 | `capture.interval_seconds` | Base capture cadence (default 60, minimum 10) |
 | `capture.start_time`/`end_time` | Optional fixed daily capture window |
@@ -645,6 +647,37 @@ window closes at sunrise**. (A manual build still works:
 Night mode needs a location set (`events.zip` or `latitude`/`longitude`), same
 as the daylight window. Leave `yearly.video_window` empty when using it — a
 daylight-hours filter makes no sense for night frames.
+
+### Per-camera schedules
+
+Everything above can be set **per camera**, so one camera can watch the dark
+hours while the rest shoot daylight — a yard camera logging which animals visit
+overnight, or one framing a moonrise, without changing what the others do:
+
+```yaml
+cameras:
+  - name: wildlife
+    # ...host, credentials, etc...
+    interval_seconds: 300     # optional; falls back to capture.interval_seconds
+    daylight_window:
+      enabled: true
+      mode: night
+      buffer_minutes: 30
+```
+
+Each key falls back to the global `capture.daylight_window` **independently**,
+so `mode: night` alone inherits the global buffer. The two are resolved
+separately, so a camera can enable its own window while the global one is off —
+or set `enabled: false` to opt out while the global one is on.
+
+A night camera builds its own video at **its** dawn, scoped to just that camera;
+the others build on the normal nightly timer. All of this is editable from the
+Config page under each camera's **Capture schedule**.
+
+Note that covering the dark hours roughly **doubles** how long that camera is
+capturing versus daylight-only. `interval_seconds` on the camera is the simplest
+way to hold disk use flat — a night camera at 300s writes a fifth as many frames
+per hour as one at 60s. See [Storage estimates](#storage-estimates).
 
 ## Security
 

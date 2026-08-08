@@ -22,7 +22,8 @@ import requests
 import urllib3
 
 import events
-from common import (APP_ROOT, APP_VERSION, load_config, local_now, local_today,
+from common import (APP_ROOT, APP_VERSION, camera_daylight_config,
+                    camera_interval_seconds, load_config, local_now, local_today,
                     snapshots_dir, tzinfo_for, videos_dir)
 
 # A "night" spans midnight, so night frames are bucketed by a noon-to-noon
@@ -93,14 +94,18 @@ class DaylightWindow:
     per day and caches it — capture ticks call this far more often than the
     sun rises.
 
+    One instance per camera: settings come from camera_daylight_config, so a
+    camera can run night mode while the rest of the setup stays on daylight.
+
     Uses the same location config as weather/lunar tagging (events.zip or
     latitude/longitude), independent of whether either of those is enabled.
     Fails open (captures all day) if location or the sunrise/sunset lookup
     is unavailable, same policy as the rest of capture.py's checks.
     """
 
-    def __init__(self, cfg, tz=None):
-        self.cfg = cfg["capture"].get("daylight_window") or {}
+    def __init__(self, cfg, tz=None, cam=None):
+        self.cfg = camera_daylight_config(cfg, cam or {})
+        self.label = (cam or {}).get("name", "global")
         self.enabled = bool(self.cfg.get("enabled"))
         # "day" captures inside the sunrise/sunset window; "night" captures its
         # complement (the dark hours), which spans midnight.
@@ -110,6 +115,10 @@ class DaylightWindow:
         self.tz = tz
         self._cached_date = None
         self._window = (None, None)
+
+    @property
+    def night(self) -> bool:
+        return self.enabled and self.mode == "night"
 
     def window_for(self, today):
         if today != self._cached_date:
@@ -123,7 +132,8 @@ class DaylightWindow:
             lat, lon = events.resolve_location(self.events_cfg)
             sunrise, sunset = events.sunrise_sunset(today, lat, lon, self.ephem_dir, self.tz)
         except Exception as exc:
-            log.warning("daylight window unavailable, capturing all day: %s", exc)
+            log.warning("%s: daylight window unavailable, capturing all day: %s",
+                        self.label, exc)
             return None, None
         if sunrise:
             sunrise = (dt.datetime.combine(today, sunrise)
@@ -131,7 +141,7 @@ class DaylightWindow:
         if sunset:
             sunset = (dt.datetime.combine(today, sunset)
                       + dt.timedelta(minutes=buffer_min)).time()
-        log.info("daylight window for %s: %s - %s", today,
+        log.info("%s: daylight window for %s: %s - %s", self.label, today,
                  sunrise.strftime("%H:%M") if sunrise else "n/a",
                  sunset.strftime("%H:%M") if sunset else "n/a")
         return sunrise, sunset
@@ -271,21 +281,35 @@ def prune_old_snapshots(cfg, tz=None):
             log.info("pruned snapshots %s/%s", cam_dir.name, day_dir.name)
 
 
-def run_once(cfg, conditions=None, daylight=None, tz=None):
+def run_once(cfg, conditions=None, windows=None, tz=None, due=None):
+    """Capture one frame per due camera.
+
+    Each camera is gated on its own daylight window, so a night camera and a
+    daytime one can coexist in the same tick. `due` optionally limits the run
+    to a subset of camera names (used by the loop for per-camera intervals);
+    None means every camera.
+    """
     now = local_now(tz)
     capture_cfg = cfg["capture"]
-    if not within_window(now, capture_cfg, daylight):
-        log.debug("outside capture window, skipping")
-        return
-
-    # In night mode, bucket by the noon-to-noon logical day so a night's
-    # evening + following-morning frames share one folder and sort in order.
-    night = bool(daylight and daylight.enabled and daylight.mode == "night")
-    capture_dt = (now - NIGHT_DAY_SHIFT) if night else now
+    windows = windows or {}
 
     tags = sorted(conditions.tags) if conditions else []
     out_root = snapshots_dir(cfg)
     for cam in cfg["cameras"]:
+        name = cam["name"]
+        if due is not None and name not in due:
+            continue
+        daylight = windows.get(name)
+        if not within_window(now, capture_cfg, daylight):
+            log.debug("%s: outside capture window, skipping", name)
+            continue
+
+        # In night mode, bucket by the noon-to-noon logical day so a night's
+        # evening + following-morning frames share one folder and sort in
+        # order. This follows the camera, not the global setting, or a
+        # night camera in a daytime setup would still be cut at midnight.
+        capture_dt = (now - NIGHT_DAY_SHIFT) if (daylight and daylight.night) else now
+
         if not cam.get("verify_ssl", True):
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         quarantine = not ptz_at_home(cam, capture_cfg)
@@ -306,15 +330,20 @@ def run_once(cfg, conditions=None, daylight=None, tz=None):
                     log.error("%s: snapshot failed: %s", cam["name"], msg)
 
 
-def trigger_night_build(config_path, date):
+def trigger_night_build(config_path, date, camera=None):
     """Launch the daily build for a just-completed night as a detached process,
     so a slow ffmpeg run never stalls capture. build_timelapse handles its own
-    logging and failures; a bad build must not take capture down."""
+    logging and failures; a bad build must not take capture down.
+
+    Scoped to one camera: nights end at that camera's own dawn, and the other
+    cameras' videos are built on the normal daily schedule."""
     cmd = [sys.executable, str(APP_ROOT / "build_timelapse.py"),
            "daily", "--date", date.isoformat()]
+    if camera:
+        cmd += ["--camera", camera]
     if config_path:
         cmd += ["--config", str(config_path)]
-    log.info("night ended — launching build for %s", date)
+    log.info("%s: night ended — launching build for %s", camera or "all", date)
     try:
         subprocess.Popen(cmd)
     except Exception:
@@ -323,7 +352,6 @@ def trigger_night_build(config_path, date):
 
 def loop(cfg, config_path=None):
     configured_interval = cfg["capture"]["interval_seconds"]
-    base_interval = max(MIN_INTERVAL_SECONDS, configured_interval)
     if configured_interval < MIN_INTERVAL_SECONDS:
         log.warning("capture.interval_seconds=%s is below the %ds minimum — using %ds "
                     "(faster polling risks overloading the camera/NVR)",
@@ -331,40 +359,68 @@ def loop(cfg, config_path=None):
     tz = tzinfo_for(events.resolve_timezone(cfg))
     log.info("capture timezone: %s", tz.key if tz is not None else "host system default")
     conditions = Conditions(cfg)
-    daylight = DaylightWindow(cfg, tz)
-    night_mode = daylight.enabled and daylight.mode == "night"
-    if daylight.enabled and (cfg["capture"].get("start_time") or cfg["capture"].get("end_time")):
-        log.warning("capture.daylight_window is enabled; static start_time/end_time are ignored")
-    if night_mode:
-        log.info("night mode: capturing dark hours; each night's video is built "
-                 "~%d min after the window closes at dawn", NIGHT_BUILD_DELAY.seconds // 60)
+
+    # One window and one interval per camera, resolved once at startup.
+    windows = {cam["name"]: DaylightWindow(cfg, tz, cam) for cam in cfg["cameras"]}
+    intervals = {cam["name"]: camera_interval_seconds(cfg, cam, MIN_INTERVAL_SECONDS)
+                 for cam in cfg["cameras"]}
+    for cam in cfg["cameras"]:
+        name = cam["name"]
+        win = windows[name]
+        if win.enabled and (cfg["capture"].get("start_time") or cfg["capture"].get("end_time")):
+            log.warning("%s: daylight window is enabled; static start_time/end_time "
+                        "are ignored for this camera", name)
+        log.info("%s: %s mode, every %ds", name,
+                 win.mode if win.enabled else "all-day", intervals[name])
+    if any(w.night for w in windows.values()):
+        log.info("night mode active; each night's video is built ~%d min after "
+                 "that camera's window closes at dawn", NIGHT_BUILD_DELAY.seconds // 60)
+
     last_prune_day = None
-    was_in_window = None
-    pending_build_date = None
-    pending_build_at = None
+    # Per-camera night-build bookkeeping, keyed by camera name.
+    was_in_window = {}
+    pending_build = {}
+    # Which clock-aligned slot each camera last fired in, so cameras on
+    # different intervals stay aligned to the wall clock instead of drifting.
+    last_slot = {}
     while True:
         conditions.refresh()
         # Burst tags (storm/snow) shorten the interval; pick a burst interval
         # that divides the base one so burst frames stay clock-aligned too.
-        interval = conditions.interval(base_interval)
+        effective = {name: conditions.interval(secs) for name, secs in intervals.items()}
+        # Tick at the fastest camera's rate; slower ones simply aren't due yet.
+        tick = min(effective.values()) if effective else conditions.interval(MIN_INTERVAL_SECONDS)
         now = time.time()
-        time.sleep(interval - (now % interval))
-        run_once(cfg, conditions, daylight, tz)
+        time.sleep(tick - (now % tick))
+
+        now = time.time()
+        due = set()
+        for name, secs in effective.items():
+            slot = int(now // secs)
+            if last_slot.get(name) != slot:
+                last_slot[name] = slot
+                due.add(name)
+        if due:
+            run_once(cfg, conditions, windows, tz, due)
 
         now_local = local_now(tz)
-        if night_mode:
-            # When capture crosses from the night window into daylight at dawn,
-            # the night just finished — schedule its build a few minutes later.
-            in_window = within_window(now_local, cfg["capture"], daylight)
-            if was_in_window and not in_window:
-                pending_build_date = (now_local - NIGHT_DAY_SHIFT).date()
-                pending_build_at = now_local + NIGHT_BUILD_DELAY
-                log.info("night window closed; build for %s scheduled ~%s",
-                         pending_build_date, pending_build_at.strftime("%H:%M"))
-            if pending_build_date and now_local >= pending_build_at:
-                trigger_night_build(config_path, pending_build_date)
-                pending_build_date = pending_build_at = None
-            was_in_window = in_window
+        for name, win in windows.items():
+            if not win.night:
+                continue
+            # When a camera crosses from its night window into daylight at
+            # dawn, that night just finished — schedule its build shortly after.
+            in_window = within_window(now_local, cfg["capture"], win)
+            if was_in_window.get(name) and not in_window:
+                build_date = (now_local - NIGHT_DAY_SHIFT).date()
+                build_at = now_local + NIGHT_BUILD_DELAY
+                pending_build[name] = (build_date, build_at)
+                log.info("%s: night window closed; build for %s scheduled ~%s",
+                         name, build_date, build_at.strftime("%H:%M"))
+            pending = pending_build.get(name)
+            if pending and now_local >= pending[1]:
+                trigger_night_build(config_path, pending[0], camera=name)
+                pending_build.pop(name, None)
+            was_in_window[name] = in_window
 
         today = local_today(tz)
         if today != last_prune_day:
@@ -392,7 +448,8 @@ def main():
         tz = tzinfo_for(events.resolve_timezone(cfg))
         conditions = Conditions(cfg)
         conditions.refresh()
-        run_once(cfg, conditions, DaylightWindow(cfg, tz), tz)
+        windows = {cam["name"]: DaylightWindow(cfg, tz, cam) for cam in cfg["cameras"]}
+        run_once(cfg, conditions, windows, tz)
         prune_old_snapshots(cfg, tz)
 
 

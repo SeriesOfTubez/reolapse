@@ -107,6 +107,41 @@ def load_config(config_path=None):
     return cfg
 
 
+DAYLIGHT_KEYS = ("enabled", "mode", "buffer_minutes")
+
+
+def camera_daylight_config(cfg, cam) -> dict:
+    """A camera's effective daylight window settings.
+
+    Each key falls back to the global capture.daylight_window independently, so
+    a camera can flip just the mode and inherit the buffer. A camera may also
+    enable its own window while the global one is off (the "one night camera in
+    an otherwise daytime setup" case) — the two are resolved separately.
+    Always returns a fresh dict; callers must never alias the global config.
+    """
+    merged = dict((cfg.get("capture") or {}).get("daylight_window") or {})
+    for key, value in ((cam.get("daylight_window") or {}).items()):
+        if key in DAYLIGHT_KEYS and value is not None:
+            merged[key] = value
+    return merged
+
+
+def camera_interval_seconds(cfg, cam, minimum=10) -> int:
+    """A camera's capture interval, falling back to the global one.
+
+    Lets a night camera poll less often than the daytime ones, so covering the
+    dark hours doesn't double what the setup writes to disk.
+    """
+    value = cam.get("interval_seconds")
+    if value is None:
+        value = (cfg.get("capture") or {}).get("interval_seconds")
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        value = minimum
+    return max(minimum, value)
+
+
 def build_status_path(cfg) -> Path:
     return cfg["storage"]["root"] / "build_status.json"
 

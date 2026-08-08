@@ -14,6 +14,16 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   every push/PR to `main`).
 
 ### Added
+- **Per-camera capture schedules.** A camera can now set its own
+  `daylight_window` (`enabled`/`mode`/`buffer_minutes`) and `interval_seconds`,
+  each falling back to the global `capture` settings independently. This lets a
+  single camera record the dark hours — overnight wildlife, a moonrise — while
+  the rest keep shooting daylight. A camera can enable its own window while the
+  global one is off, or opt out while it is on. Night frames bucket by the
+  noon-to-noon day **per camera**, so a night camera in a daytime setup still
+  produces one continuous video instead of two halves split at midnight, and its
+  build is triggered at its own dawn scoped to just that camera. Editable from
+  the Config page under each camera's **Capture schedule**.
 - Docker `:edge` image: every push to `main` now publishes a multi-arch
   `ghcr.io/seriesoftubez/reolapse:edge` image (latest development code), the
   Docker parallel to `install.sh`'s `main` option. Run it with
