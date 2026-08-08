@@ -31,7 +31,11 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   minutes; a failed refresh keeps serving the last good forecast labelled with
   its age, because an empty forecast built during an outage is indistinguishable
   from a genuinely calm week. Degrades to moon-events-only with no location
-  configured, and works outside the US on Open-Meteo alone. Configurable via
+  configured, and works outside the US on Open-Meteo alone. Respects
+  `events.weather_enabled` and `events.lunar_enabled`, so a deployment with
+  weather tagging off makes no outbound weather calls when the tab is opened and
+  one with lunar tagging off never triggers the ephemeris download — the tab
+  explains what's switched off rather than just looking empty. Configurable via
   `events.forecast_days` (1-10) and `events.forecast_snow_cm_min`.
 - **Per-camera capture schedules.** A camera can now set its own
   `daylight_window` (`enabled`/`mode`/`buffer_minutes`) and `interval_seconds`,

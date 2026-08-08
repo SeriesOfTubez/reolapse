@@ -410,8 +410,20 @@ def build_forecast(cfg, cache_dir, days=DEFAULT_FORECAST_DAYS):
     warnings = []
     sources = {}
 
+    # Honour the same two switches capture does (see events.get_active_tags).
+    # Forecasting is a different feature from tagging, but the flags mean "do
+    # not go and fetch this" — weather_enabled: false must not still send the
+    # user's coordinates to Open-Meteo and NWS whenever someone opens the tab,
+    # and lunar_enabled: false must not trigger the ~17 MB ephemeris download.
+    weather_on = bool(events_cfg.get("weather_enabled"))
+    lunar_on = bool(events_cfg.get("lunar_enabled"))
+
     lat = lon = None
-    if events.has_location_configured(events_cfg):
+    if not weather_on:
+        warnings.append(
+            "Weather tagging is off, so storms and snow aren't forecast — turn on "
+            "\"Storm/snow/rain tagging\" on the Config page to see them here.")
+    elif events.has_location_configured(events_cfg):
         try:
             lat, lon = events.resolve_location(events_cfg)
         except Exception as exc:
@@ -476,7 +488,7 @@ def build_forecast(cfg, cache_dir, days=DEFAULT_FORECAST_DAYS):
                 if event:
                     day_events.append(event)
 
-        if bool(events_cfg.get("lunar_enabled", True)):
+        if lunar_on:
             day_events += _moon_events(date, cache_dir, lat, lon)
 
         out_days.append({
@@ -496,7 +508,7 @@ def build_forecast(cfg, cache_dir, days=DEFAULT_FORECAST_DAYS):
         "sources": sources,
         "warnings": warnings,
         "has_location": lat is not None,
-        "next_full_moon": _next_full_moon_beyond(last_date, cache_dir),
+        "next_full_moon": _next_full_moon_beyond(last_date, cache_dir) if lunar_on else None,
         "stale": False,
     }
 
