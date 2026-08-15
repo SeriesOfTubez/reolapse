@@ -45,11 +45,16 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   page under **Event video clips**; per-tag overrides are config-file only.
 
 ### Changed
-- **`events_video.min_frames` is renamed to `events_video.min_seconds`.**
-  The minimum-clip-length setting is a duration; a key literally named
-  `min_frames` that actually meant "roughly one second per unit" was
-  misleading. `min_seconds` (default `5`) is converted to a frame count via
-  `events_video.fps` at build time. Existing configs keep working unchanged —
+- **`events_video.min_frames` is renamed to `events_video.min_seconds`, and
+  now pads short clips instead of dropping them.** The minimum-clip-length
+  setting is a duration; a key literally named `min_frames` that actually
+  meant "roughly one second per unit" was misleading. `min_seconds` (default
+  `5`) is converted to a frame count via `events_video.fps` at build time.
+  Every tagged span gets a clip now, even a brief one — a span shorter than
+  the minimum is padded out with extra frames from before/after the event
+  instead of being skipped, so a real but short-lived storm alert still gets
+  a watchable clip rather than silently producing nothing. Existing configs
+  keep working unchanged —
   `min_frames` is still honored if `min_seconds` is absent, so a config.yaml
   that already sets `min_frames: 30` keeps its old ~1-second floor forever
   unless you act. To adopt the new 5-second default, replace `min_frames: 30`

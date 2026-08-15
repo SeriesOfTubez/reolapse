@@ -522,6 +522,41 @@ def frames_outside_spans(cfg, date, frames, tags):
             if not any(lo <= f.stem <= hi for lo, hi in windows)]
 
 
+def pad_to_min_frames(all_frames, start_hhmmss, end_hhmmss, min_frames):
+    """Frames for a tagged span, padded outward (alternating before/after) to
+    at least `min_frames` when the span itself is shorter than that.
+
+    Every triggered event gets a clip at least `min_frames` long instead of
+    being skipped for being brief — padding is pulled from the rest of the
+    camera's day and never crosses the day's boundary. If the whole day
+    doesn't have `min_frames` frames, returns everything available rather
+    than padding forever. Returns [] only when the span itself matched no
+    frames at all (e.g. the camera was offline for the whole event) — there's
+    nothing to anchor a clip on in that case.
+    """
+    indices = [i for i, f in enumerate(all_frames) if start_hhmmss <= f.stem <= end_hhmmss]
+    if not indices:
+        return []
+    lo, hi = indices[0], indices[-1]
+    deficit = min_frames - (hi - lo + 1)
+    grow_low = True
+    while deficit > 0 and (lo > 0 or hi < len(all_frames) - 1):
+        if grow_low and lo > 0:
+            lo -= 1
+            deficit -= 1
+        elif not grow_low and hi < len(all_frames) - 1:
+            hi += 1
+            deficit -= 1
+        elif lo > 0:
+            lo -= 1
+            deficit -= 1
+        elif hi < len(all_frames) - 1:
+            hi += 1
+            deficit -= 1
+        grow_low = not grow_low
+    return all_frames[lo:hi + 1]
+
+
 def build_event_videos(cfg, date, camera=None):
     ev = cfg.get("events_video") or {}
     tags = ev.get("tags") or []
@@ -547,9 +582,9 @@ def build_event_videos(cfg, date, camera=None):
         all_frames = day_frames(cfg, cam["name"], date)
         for tag in tags:
             for i, (start, end) in enumerate(tag_spans(cfg, date, tag)):
-                frames = [f for f in all_frames
-                          if start.strftime("%H%M%S") <= f.stem <= end.strftime("%H%M%S")]
-                if len(frames) < min_frames:
+                frames = pad_to_min_frames(
+                    all_frames, start.strftime("%H%M%S"), end.strftime("%H%M%S"), min_frames)
+                if not frames:
                     continue
                 suffix = f"-{i + 1}" if i else ""
                 out = (videos_dir(cfg) / cam["name"] / "events"

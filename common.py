@@ -183,10 +183,12 @@ DEFAULT_EVENT_GAP_MINUTES = 20
 
 
 def event_min_frames(cfg) -> int:
-    """Minimum frames an event span needs before a clip is rendered, resolved
-    from events_video.min_seconds x events_video.fps. min_frames is the
-    pre-0.4 key and still wins if min_seconds is absent, so an existing
-    config.yaml keeps behaving exactly as it did.
+    """Floor an event clip gets padded up to, resolved from
+    events_video.min_seconds x events_video.fps. Every tagged span still gets
+    a clip — a short one is padded with extra frames from around the event,
+    never skipped for being brief. min_frames is the pre-0.4 key and still
+    wins if min_seconds is absent, so an existing config.yaml keeps behaving
+    exactly as it did.
     """
     ev = cfg.get("events_video") or {}
     fps = ev.get("fps", 30)

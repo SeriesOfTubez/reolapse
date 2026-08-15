@@ -28,7 +28,7 @@ not: reference them as `${VAR}` and put the values in `.env`. Highlights:
 | `events.lunar_enabled` | Moon-event tagging — no location required |
 | `events.season_enabled` | Spring/summer/fall/winter tagging on frames + video metadata — no location required |
 | `events_video.tags` | Which tags get their own `<date>_<tag>.mp4` clip (default `storm`, `snow`; any tag works, including moon events) |
-| `events_video.min_seconds` | Minimum length (seconds) a tagged span needs before it gets a clip (default `5`); converted to a frame count via `events_video.fps`. Pre-0.4 configs' `min_frames` is still honored if `min_seconds` is absent — see [Weather & Storm Detection](Weather-and-Storm-Detection) |
+| `events_video.min_seconds` | Floor a clip gets padded up to (default `5`); every tagged span gets a clip, but one shorter than this is padded with extra frames from around the event rather than skipped. Converted to a frame count via `events_video.fps`. Pre-0.4 configs' `min_frames` is still honored if `min_seconds` is absent — see [Weather & Storm Detection](Weather-and-Storm-Detection) |
 | `events_video.gap_minutes` / `gap_minutes_by_tag` | Minutes of quiet that still count as one event (default `20`); optional per-tag override. Shared with the daily video's event-frame exclusion filter, so both agree on where one event ends and the next begins |
 | `events_video.deflicker_size` / `deflicker_by_tag` | Deflicker for event clips — off by default (protects lightning in storm clips), overridable per tag (e.g. enable for `snow`) |
 | `events_video.retention_days` | Delete an event clip this many days after its date; `0` = forever |

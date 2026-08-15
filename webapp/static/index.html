@@ -2235,9 +2235,10 @@ function buildEventsVideoSection() {
     cfgDelete("events_video.min_frames");
   }
   sec.appendChild(fieldRow("Minimum clip length (seconds)",
-    "Skips rendering a clip for a tagged span shorter than this many seconds — filters out brief blips "
-    + "(e.g. a storm alert that clears in a couple of minutes) that wouldn't make a meaningful clip. "
-    + "Converted to a frame count using Frame rate (fps) below.",
+    "Every tagged span still gets a clip, even a brief one (e.g. a storm alert that clears in a couple of "
+    + "minutes) — but a clip shorter than this gets padded out with extra frames from before/after the event "
+    + "so it's never just a blink-and-you-miss-it couple of frames. Converted to a frame count using Frame "
+    + "rate (fps) below.",
     numberField("events_video.min_seconds", {default: 5, min: 0, step: "0.5"})));
   sec.appendChild(fieldRow("Merge gap (minutes)",
     "Two spans of the same tag separated by less than this are rendered as one clip instead of two — a "
