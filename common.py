@@ -159,6 +159,24 @@ def camera_events_enabled(cfg, cam) -> bool:
     return True if value is None else bool(value)
 
 
+def camera_include_events_in_daily(cfg, cam) -> bool:
+    """Whether a camera's event-burst frames go into its daily video.
+
+    During a storm/snow burst, capture drops to events.burst_interval_seconds
+    and those minutes land in the same day folder as everything else, so the
+    daily video crawls through the storm at a fraction of its normal pace.
+    False (the default) leaves those minutes out of the daily .mp4 only — the
+    event clip, the yearly frame archive, and the frames on disk are untouched.
+
+    Per-camera value wins when present; otherwise falls back to the global
+    daily_video.include_events, same shape as camera_interval_seconds.
+    """
+    value = cam.get("include_events_in_daily")
+    if value is None:
+        value = (cfg.get("daily_video") or {}).get("include_events")
+    return bool(value)
+
+
 def build_status_path(cfg) -> Path:
     return cfg["storage"]["root"] / "build_status.json"
 

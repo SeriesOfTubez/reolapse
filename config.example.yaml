@@ -35,6 +35,10 @@ cameras:
   #   password: "${REOLINK_PASSWORD}"
   #   https: true
   #   verify_ssl: false
+  #   include_events_in_daily: true   # keep this camera's storm-burst frames in
+  #                                   # its daily video, whatever daily_video.
+  #                                   # include_events says. Leave the key out to
+  #                                   # follow the global setting.
 
   # Example: an auto-tracking PTZ camera. Frames captured while it is away
   # from its home position are quarantined (kept, but excluded from videos).
@@ -141,6 +145,16 @@ daily_video:
                               # its date; 0 = keep forever. Unlike snapshots, a
                               # pruned daily video is NOT re-buildable — its
                               # source frames are already gone by then too.
+  include_events: false       # weave storm/snow BURST frames into the daily
+                              # video. While a burst tag is active, capture drops
+                              # to events.burst_interval_seconds, so those minutes
+                              # land in the day folder far denser than the rest of
+                              # the day and the daily video crawls through them.
+                              # false (default) leaves frames inside an active
+                              # burst span out of the daily .mp4 ONLY — the event
+                              # clip, the yearly frame archive, and the frames on
+                              # disk are all untouched. Any camera may override
+                              # this with include_events_in_daily.
 
 yearly:
   min_days_before_render: 30  # wait until this many distinct days have been
