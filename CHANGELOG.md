@@ -7,6 +7,35 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Storm/snow sensitivity sliders, and a real live-snow threshold.**
+  Storm and snow detection thresholds could only be tuned as raw numbers
+  buried in the Config page or `config.yaml` — there was no quick "make this
+  less trigger-happy" control, and no way to make live snow tagging less
+  sensitive at all (the old snow tag was a bare weather-code match with
+  nothing to turn down). Both now get a slider on the Config page
+  (**Storm detection tuning** / **Snow detection tuning**, under Weather &
+  astronomy tagging) with Conservative/Balanced/Aggressive presets;
+  Balanced is today's shipped defaults, unchanged. The slider writes
+  concrete numbers straight into the existing `events.storm_cape_min` /
+  `storm_precip_mm` / `storm_gust_kmh` / (new) `snow_cm_min` keys — no new
+  config key is stored for "which preset," so the numbers in `config.yaml`
+  are always the whole truth. A raw value that doesn't exactly match a tier
+  (hand-edited, or from before this release) renders as "Custom" rather than
+  guessing the nearest one. New `events.snow_cm_min` (default `0.0`, cm in
+  the reporting interval — not the same unit as the Forecast tab's
+  `forecast_snow_cm_min`, which accumulates across a whole day) gates live
+  snow tagging the same way the storm thresholds already gate storm tagging,
+  and closes the same class of gap the storm-detection corroboration did:
+  Open-Meteo reporting measurable snowfall with no 71/73/75 code previously
+  produced no snow tag at all. At the default `0.0` this is
+  behavior-compatible with the old code-only rule. Both sliders govern the
+  Open-Meteo signal only — NWS alerts and station observations are keyword
+  matches and always tag regardless (a Winter Storm Warning tags snow no
+  matter what's set), which is a pre-existing, now-documented limitation
+  rather than a new one. Global only — every camera still shares one
+  weather location, so a per-camera threshold would change how
+  trigger-happy a camera is about the same measurement, not what it
+  actually sees; `events_enabled: false` remains the per-camera opt-out.
 - **Config page: App Settings / Cameras tabs.** The Config page was one long
   scroll through nine sections regardless of what you came to change. It's
   now split into two tabs: **Cameras** (the camera list/picker, each

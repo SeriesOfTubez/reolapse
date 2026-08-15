@@ -81,6 +81,36 @@ Replayed against 92 days of real hourly weather, this raised storm detection
 from 5 days to 17, with 5 dry-hour triggers out of 1588 (all of them genuine
 gust fronts).
 
+## How snow is detected
+
+| signal | source | why |
+|---|---|---|
+| An active severe alert | NWS alerts (US) | officially warned events (blizzard, winter storm, etc.) |
+| Observed snow/sleet/ice pellets | nearest NWS station (US) | what's actually happening now, not a forecast |
+| WMO code 71/73/75/77/85/86 | Open-Meteo | when the model reports a snow code |
+| Any measurable snowfall | Open-Meteo | catches snow reported with no snow code — light or mixed precipitation |
+
+The last row is gated by `events.snow_cm_min` (default `0.0`, cm in the
+reporting interval — the same "in the interval" phrasing as
+`storm_precip_mm`, and **not** the same unit as `forecast_snow_cm_min`, which
+accumulates across a whole forecast day): the tag fires only once the
+snowfall rate clears the threshold, unless the field is missing from
+Open-Meteo's response entirely, in which case detection falls back to the
+snow-code row above and ignores the threshold rather than reading a missing
+value as "no snow." At the default `0.0` this is behavior-compatible with
+just checking the code, plus catching measurable snowfall reported with no
+code at all — the same class of gap the storm corroboration above closes.
+NWS alerts and station observations are keyword matches and stay
+unthresholded regardless of this setting, same as the storm alert/observed
+rows above.
+
+Both the storm and snow thresholds are exposed on the Config page as
+**Storm detection tuning** / **Snow detection tuning** sliders with
+Conservative / Balanced / Aggressive presets — dragging one writes concrete
+numbers into the same config keys described here (no separate "preset"
+setting is stored), and a hand-edited value that doesn't exactly match a
+tier shows as "Custom."
+
 ## Surviving API outages
 
 These free services hand out timeouts and 502/503s fairly regularly. A failed

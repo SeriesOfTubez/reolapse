@@ -104,6 +104,13 @@ STORM_CAPE_MIN = 800.0       # J/kg, with precipitation: convective rain
 STORM_GUST_MIN = 60.0        # km/h, on its own: squall / downburst
 STORM_PRECIP_MIN = 0.1       # mm in the reporting interval = "actually raining"
 
+# cm in the reporting interval — deliberately the same "mm/cm in the interval"
+# phrasing as STORM_PRECIP_MIN, and NOT the same unit as forecast_snow_cm_min
+# (accumulated cm across a whole forecast day). At the default 0.0 this is
+# behaviour-compatible with the code-only rule below; raising it makes live
+# snow tagging less sensitive.
+SNOW_CM_MIN = 0.0
+
 
 def _skyfield(cache_dir):
     """Lazily load the timescale + ephemeris, cached for the process."""
@@ -291,18 +298,21 @@ def open_meteo_tags(lat, lon, timeout=10, cfg=None) -> dict:
     """Current-conditions tags from Open-Meteo.
 
     Asks for the physical fields alongside the WMO code, because the code alone
-    under-reports thunderstorms badly (see STORM_CAPE_MIN above).
+    under-reports thunderstorms badly (see STORM_CAPE_MIN above), and (see
+    SNOW_CM_MIN above) under-reports snow the same way — measurable snowfall
+    with no 71/73/75 code currently produces no snow tag at all.
     """
     cfg = cfg or {}
     cape_min = _num(cfg.get("storm_cape_min"), STORM_CAPE_MIN)
     gust_min = _num(cfg.get("storm_gust_kmh"), STORM_GUST_MIN)
     precip_min = _num(cfg.get("storm_precip_mm"), STORM_PRECIP_MIN)
+    snow_min = _num(cfg.get("snow_cm_min"), SNOW_CM_MIN)
 
     tags = {}
     resp = requests.get(
         "https://api.open-meteo.com/v1/forecast",
         params={"latitude": lat, "longitude": lon,
-                "current": "weather_code,precipitation,wind_gusts_10m,cape"},
+                "current": "weather_code,precipitation,wind_gusts_10m,cape,snowfall"},
         timeout=timeout,
     )
     resp.raise_for_status()
@@ -312,7 +322,12 @@ def open_meteo_tags(lat, lon, timeout=10, cfg=None) -> dict:
     gusts = _num(current.get("wind_gusts_10m"), 0.0)
     cape = _num(current.get("cape"), 0.0)
 
+    # storm/rain: unconditional per-code tagging, same as always. snow is
+    # handled separately below — its tag is gated by snow_cm_min, so it can't
+    # go through this same unconditional loop.
     for tag, codes in WMO_TAGS.items():
+        if tag == "snow":
+            continue
         if code in codes:
             tags.setdefault(tag, f"Open-Meteo weather code {code}")
 
@@ -323,6 +338,22 @@ def open_meteo_tags(lat, lon, timeout=10, cfg=None) -> dict:
     # A squall line's gust front is worth capturing whether or not it's raining.
     if gusts >= gust_min:
         tags.setdefault("storm", f"Open-Meteo wind gusts {gusts:.0f} km/h")
+
+    # snow tag fires iff (a WMO snow code OR any measurable snowfall) AND the
+    # snowfall rate clears snow_cm_min. `snowfall` absent from the response
+    # (a model that doesn't provide it) is a "we don't know", not a "zero" —
+    # _num(None, 0.0) collapsing that to 0.0 would silently fail the >=
+    # snow_min check and disable the code-based trigger entirely, so that
+    # case is handled explicitly, ignoring the threshold and falling back to
+    # today's code-only rule instead.
+    snowfall_raw = current.get("snowfall")
+    if snowfall_raw is None:
+        if code in WMO_TAGS["snow"]:
+            tags.setdefault("snow", f"Open-Meteo weather code {code}")
+    else:
+        snowfall = _num(snowfall_raw, 0.0)
+        if (code in WMO_TAGS["snow"] or snowfall > 0) and snowfall >= snow_min:
+            tags.setdefault("snow", f"Open-Meteo snowfall {snowfall} cm")
     return tags
 
 

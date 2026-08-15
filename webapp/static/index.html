@@ -461,6 +461,9 @@
     margin-bottom: var(--space-2);
     line-height: 1.5;
   }
+  .sensitivity-slider { width: 100%; accent-color: var(--accent); margin-bottom: var(--space-1); }
+  .sensitivity-caption { font-size: var(--fs-xs); color: var(--text-2); margin-bottom: var(--space-3); }
+  .is-custom .sensitivity-caption { color: var(--text-3); }
   .cfg-row {
     display: flex;
     align-items: flex-start;
@@ -1206,6 +1209,23 @@ const ACCENT_HEX = {amber: "#f2a94e", green: "#6fcf97", blue: "#6fa8f5",
                     red: "#f2705b", purple: "#b18cf2", yellow: "#e8d44a"};
 const EVENT_TAGS = ["storm", "snow", "rain", "full-moon", "blue-moon",
                     "harvest-moon", "blood-moon", "lunar-eclipse"];
+
+// Sensitivity slider presets (see sensitivityGroup() below). Three tiers,
+// Conservative -> Aggressive; "Balanced" is today's shipped defaults,
+// unchanged, and doubles as the slider's deterministic no-match fallback.
+const STORM_SENSITIVITY_PRESETS = [
+  {name: "Conservative", values: {
+    "events.storm_cape_min": 1500, "events.storm_precip_mm": 0.5, "events.storm_gust_kmh": 80}},
+  {name: "Balanced", values: {
+    "events.storm_cape_min": 800, "events.storm_precip_mm": 0.1, "events.storm_gust_kmh": 60}},
+  {name: "Aggressive", values: {
+    "events.storm_cape_min": 400, "events.storm_precip_mm": 0.1, "events.storm_gust_kmh": 45}},
+];
+const SNOW_SENSITIVITY_PRESETS = [
+  {name: "Conservative", values: {"events.snow_cm_min": 0.5}},
+  {name: "Balanced", values: {"events.snow_cm_min": 0.1}},
+  {name: "Aggressive", values: {"events.snow_cm_min": 0.0}},
+];
 
 async function renderConfig() {
   document.getElementById("sidebar").innerHTML = "";
@@ -2261,6 +2281,101 @@ function buildYearlySection() {
   return sec;
 }
 
+// A slider that maps named presets onto a group of raw config numbers. No
+// new config key is stored for the choice itself — dragging the slider
+// writes the preset's concrete numbers straight into the existing keys, and
+// the slider's position is *derived* at every render by matching the current
+// raw values against the preset table. A hand-edited config.yaml (or simply
+// typing in one of the raw inputs below) that doesn't exactly match a tier
+// renders as "Custom" rather than guessing the nearest one — the numbers in
+// the file are what runs, and the preset table exists only in the browser.
+//
+// opts: {
+//   title, intro,               // subsection heading + shared intro hint
+//   presets: [{name, values: {"cfg.path": number, ...}}],  // Conservative -> Aggressive
+//   describe: (values) => string,  // human-readable summary of a values object,
+//                                  // e.g. "CAPE 800 J/kg · rain 0.1 mm · gusts 60 km/h"
+//   rows: [{path, row}],        // each path's fieldRow() <div>, in any order
+// }
+// returns a .cfg-subsection: heading, intro, <input type="range">, a caption
+// line, then the raw rows.
+function sensitivityGroup(opts) {
+  const box = document.createElement("div");
+  box.className = "cfg-subsection";
+
+  const heading = document.createElement("h4");
+  heading.textContent = opts.title;
+  box.appendChild(heading);
+
+  if (opts.intro) {
+    const intro = document.createElement("div");
+    intro.className = "cfg-hint-block";
+    intro.textContent = opts.intro;
+    box.appendChild(intro);
+  }
+
+  // Balanced is the deterministic "no exact match" fallback position (never
+  // a nearest-tier guess) and also supplies cfgGet()'s default for each path
+  // — i.e. "the shipped default" a path reads as when the key is absent.
+  const balancedIndex = opts.presets.findIndex(p => p.name === "Balanced");
+  const paths = Object.keys(opts.presets[0].values);
+
+  const slider = document.createElement("input");
+  slider.type = "range";
+  slider.className = "sensitivity-slider";
+  slider.min = "0";
+  slider.max = String(opts.presets.length - 1);
+  slider.step = "1";
+  box.appendChild(slider);
+
+  const caption = document.createElement("div");
+  caption.className = "sensitivity-caption";
+  box.appendChild(caption);
+
+  function currentValues() {
+    const values = {};
+    paths.forEach(path => {
+      values[path] = cfgGet(path, opts.presets[balancedIndex].values[path]);
+    });
+    return values;
+  }
+
+  function matchPreset() {
+    const values = currentValues();
+    const idx = opts.presets.findIndex(preset =>
+      paths.every(path => Math.abs(Number(values[path]) - preset.values[path]) < 1e-9));
+    if (idx >= 0) {
+      slider.value = String(idx);
+      caption.textContent = `${opts.presets[idx].name} — ${opts.describe(opts.presets[idx].values)}`;
+      box.classList.remove("is-custom");
+    } else {
+      slider.value = String(balancedIndex);
+      caption.textContent = `Custom — ${opts.describe(values)}`;
+      box.classList.add("is-custom");
+    }
+  }
+
+  slider.onchange = () => {
+    const preset = opts.presets[parseInt(slider.value, 10)];
+    paths.forEach(path => {
+      cfgSet(path, preset.values[path]);
+      const rowInfo = opts.rows.find(r => r.path === path);
+      const input = rowInfo && rowInfo.row.querySelector("input");
+      if (input) input.value = preset.values[path];
+    });
+    matchPreset();
+  };
+
+  opts.rows.forEach(r => {
+    box.appendChild(r.row);
+    const input = r.row.querySelector("input");
+    if (input) input.addEventListener("input", matchPreset);
+  });
+
+  matchPreset();
+  return box;
+}
+
 function buildEventsSection() {
   const sec = document.createElement("div");
   sec.className = "cfg-section";
@@ -2346,37 +2461,77 @@ function buildEventsSection() {
     + "has enough footage.",
     tagCheckGroup("events.burst_tags", ["storm", "snow", "rain"]), true));
 
-  const tuning = document.createElement("div");
-  tuning.className = "cfg-subsection";
-  const th = document.createElement("h4");
-  th.textContent = "Storm detection tuning";
-  tuning.appendChild(th);
-  const intro = document.createElement("div");
-  intro.className = "cfg-hint-block";
-  intro.textContent = "Weather services report \"thunderstorm\" far less often than thunderstorms actually "
-    + "happen — a storm downpour usually comes back labelled as rain showers. So a storm is also inferred "
-    + "from the physical measurements below. Raise these to tag fewer storms, lower them to tag more.";
-  tuning.appendChild(intro);
+  // Shared limitation for both sliders below, stated once rather than in
+  // each subsection: they only govern the Open-Meteo path. NWS alerts
+  // (NWS_TAG_MAP) and NWS station observations (NWS_OBSERVED_MAP) are
+  // keyword matches and stay unthresholded either way — a Thunderstorm or
+  // Winter Storm Warning tags storm/snow no matter what's set below. That's
+  // already true of the storm slider today; the snow slider is simply
+  // consistent with it.
+  const sensitivityHint = document.createElement("div");
+  sensitivityHint.className = "cfg-hint-block";
+  sensitivityHint.textContent = "The sliders below tune the Open-Meteo signal only. NWS alerts and station "
+    + "observations are keyword matches, not thresholds — a Thunderstorm or Winter Storm Warning still tags "
+    + "storm/snow no matter where these are set.";
+  sec.appendChild(sensitivityHint);
 
-  tuning.appendChild(fieldRow("Convective energy (CAPE, J/kg)",
+  const capeRow = fieldRow("Convective energy (CAPE, J/kg)",
     "How much instability in the atmosphere counts as storm-like, when rain is ALSO falling. CAPE on its own "
     + "is only potential — it can sit above 2000 under a completely clear sky — so it never tags a storm by "
     + "itself. Around 800 is ordinary thunderstorm territory; 2500+ is a severe setup.",
-    numberField("events.storm_cape_min", {default: 800, min: 0})));
-  tuning.appendChild(fieldRow("Minimum rainfall (mm)",
+    numberField("events.storm_cape_min", {default: 800, min: 0}));
+  const precipRow = fieldRow("Minimum rainfall (mm)",
     "How much precipitation counts as \"actually raining\" for the check above. The default is deliberately "
-    + "tiny — it exists to rule out a dry but unstable sky, not to measure how hard it's raining.",
-    numberField("events.storm_precip_mm", {default: 0.1, min: 0, step: "0.1"})));
-  tuning.appendChild(fieldRow("Wind gusts (km/h)",
+    + "tiny — it exists to rule out a dry but unstable sky, not to measure how hard it's raining. It's a "
+    + "presence test, not an intensity dial, which is why it only moves between tiers at Conservative below "
+    + "— the other two tiers agree it just needs to be nonzero.",
+    numberField("events.storm_precip_mm", {default: 0.1, min: 0, step: "0.1"}));
+  const gustRow = fieldRow("Wind gusts (km/h)",
     "Gusts this strong tag a storm on their own, rain or no rain — that's a squall or gust front, which is "
     + "usually the most dramatic thing a timelapse can catch. 60 km/h is roughly 37 mph.",
-    numberField("events.storm_gust_kmh", {default: 60, min: 0})));
+    numberField("events.storm_gust_kmh", {default: 60, min: 0}));
+
+  const tuning = sensitivityGroup({
+    title: "Storm detection tuning",
+    intro: "Weather services report \"thunderstorm\" far less often than thunderstorms actually happen — a "
+      + "storm downpour usually comes back labelled as rain showers. So a storm is also inferred from the "
+      + "physical measurements below. Pick a tier, or edit the raw numbers directly for a custom setup.",
+    presets: STORM_SENSITIVITY_PRESETS,
+    describe: v => `CAPE ${v["events.storm_cape_min"]} J/kg · rain ${v["events.storm_precip_mm"]} mm · `
+      + `gusts ${v["events.storm_gust_kmh"]} km/h`,
+    rows: [
+      {path: "events.storm_cape_min", row: capeRow},
+      {path: "events.storm_precip_mm", row: precipRow},
+      {path: "events.storm_gust_kmh", row: gustRow},
+    ],
+  });
   tuning.appendChild(fieldRow("Outage grace (minutes)",
     "If a weather service stops responding — these free APIs hand out timeouts and 503s fairly regularly — "
     + "keep its last known tags for this long instead of treating the outage as \"all clear\". Without it, a "
-    + "single failed check ends a storm burst early. Set 0 to disable.",
+    + "single failed check ends a storm burst early. Set 0 to disable. Not part of the tiers above — this is "
+    + "an outage policy, not a sensitivity.",
     numberField("events.stale_grace_minutes", {default: 15, min: 0})));
   sec.appendChild(tuning);
+
+  const snowRow = fieldRow("Minimum snowfall (cm)",
+    "cm in the reporting interval before live snow tagging fires — deliberately the same \"in the reporting "
+    + "interval\" phrasing as Minimum rainfall above, and NOT the same unit as the Forecast tab's Minimum "
+    + "snow (cm) below, which accumulates across a whole day. At 0 (the default), any Open-Meteo snow code or "
+    + "any measurable snowfall at all tags snow — the same behavior as today, plus catching measurable "
+    + "snowfall reported with no snow code.",
+    numberField("events.snow_cm_min", {default: 0.0, min: 0, step: "0.1"}));
+
+  const snowGroup = sensitivityGroup({
+    title: "Snow detection tuning",
+    intro: "Same idea as storm detection above, for live snow tagging. Raise it to require an actual "
+      + "snowfall rate instead of a bare snow code or trace amount.",
+    presets: SNOW_SENSITIVITY_PRESETS,
+    describe: v => `snow ${v["events.snow_cm_min"]} cm`,
+    rows: [
+      {path: "events.snow_cm_min", row: snowRow},
+    ],
+  });
+  sec.appendChild(snowGroup);
 
   const fc = document.createElement("div");
   fc.className = "cfg-subsection";
