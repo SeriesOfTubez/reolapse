@@ -7,6 +7,19 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Navbar rework: a camera picker plus a Daily/Yearly/Events dropdown.**
+  Replaces the old row of one pill button per camera (which stopped scaling
+  past a handful of cameras) with a single `<select>`, shared by the navbar
+  and, further down this list, the Config page's Cameras tab. The three
+  video-type pills (Daily/Yearly/Events) become a second dropdown next to it;
+  Forecast/Storage/Config stay as pills, since only one of those three is ever
+  "active" the way a tab is. On a view that doesn't use a camera (Forecast,
+  Storage, Config) the camera picker stays visible but disabled, with a
+  tooltip explaining why, rather than hiding and reflowing the header or
+  silently doing nothing when changed. Fixes a bug where the camera selection
+  reset to the first camera every time a nightly build finished refreshing the
+  page in the background — browsing camera 3 no longer bounces you back to
+  camera 1 mid-session.
 - **Optional event-burst frames in the daily video.** While a storm/snow burst
   is active, capture drops to `events.burst_interval_seconds`, so those
   minutes land in the same day folder far denser than the rest of the day and

@@ -104,6 +104,20 @@
     font-weight: var(--fw-medium);
   }
 
+  .nav-group { display: flex; align-items: center; gap: var(--space-2); }
+  .nav-label { color: var(--text-3); font-size: var(--fs-xs); }
+  .cam-select, .view-select {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: var(--radius-pill); color: var(--text-2);
+    font: var(--fw-regular) var(--fs-sm)/1 var(--font-sans);
+    padding: var(--space-1) var(--space-3); cursor: pointer;
+    transition: color var(--transition), border-color var(--transition);
+  }
+  .cam-select:hover, .view-select:hover { color: var(--text-1); border-color: var(--border-strong); }
+  .cam-select:focus, .view-select:focus { outline: 1px solid var(--accent); }
+  .cam-select:disabled { color: var(--text-3); cursor: not-allowed; opacity: 0.6; }
+  .cam-select option, .view-select option { background: var(--surface-1); color: var(--text-1); }
+
   main { flex: 1; display: flex; min-height: 0; }
 
   #content-col {
@@ -578,11 +592,16 @@
     <h1>ReoLapse</h1>
     <span class="version" id="version"></span>
   </div>
-  <div class="pills" id="cameras"></div>
+  <div class="nav-group">
+    <label class="nav-label" for="camera-select">Camera</label>
+    <span id="camera-picker"></span>
+    <select id="view-select" class="view-select">
+      <option value="daily">Daily</option>
+      <option value="yearly">Yearly</option>
+      <option value="events">Events</option>
+    </select>
+  </div>
   <div class="pills" id="types">
-    <button class="pill active" data-type="daily">Daily</button>
-    <button class="pill" data-type="yearly">Yearly</button>
-    <button class="pill" data-type="events">Events</button>
     <button class="pill" data-type="forecast">Forecast</button>
     <button class="pill" data-type="storage">Storage</button>
     <button class="pill" data-type="config">Config</button>
@@ -600,7 +619,8 @@
   </div>
 </main>
 <script>
-let state = { videos: [], camera: null, type: "daily", current: null };
+let state = { videos: [], cameras: [], camera: null, type: "daily",
+              lastVideoView: "daily", current: null };
 
 async function load() {
   const res = await fetch("/api/videos");
@@ -620,22 +640,105 @@ async function load() {
     warnBox.appendChild(div);
   });
 
-  const camBox = document.getElementById("cameras");
-  camBox.innerHTML = "";
-  data.cameras.forEach((cam, i) => {
-    const b = document.createElement("button");
-    b.className = "pill" + (i === 0 ? " active" : "");
-    b.textContent = cam;
-    b.onclick = () => { state.camera = cam; setActive(camBox, b); refresh(); };
-    camBox.appendChild(b);
-  });
-  state.camera = data.cameras[0] || null;
+  // Keep the currently-selected camera across a refresh (e.g. the poll that
+  // fires when a nightly build finishes) instead of always snapping back to
+  // cameras[0] — only fall back when the current selection no longer exists
+  // (a genuinely new list, or the first load with none selected yet).
+  state.cameras = data.cameras || [];
+  if (!state.cameras.includes(state.camera)) state.camera = state.cameras[0] || null;
+  mountCameraPicker();
   refresh();
 }
 
 function setActive(container, btn) {
   container.querySelectorAll(".pill").forEach(p => p.classList.remove("active"));
   btn.classList.add("active");
+}
+
+// --- Shared UI components ---
+
+// A <select> of cameras, used identically by the navbar and (Feature C) the
+// Config page's Cameras tab. opts.cameras accepts plain name strings (the
+// navbar's case — GET /api/videos derives its list from videos on disk) or
+// {value, label} objects (the Config page's case — index-based, fed from
+// state.configData.cameras). The two lists are deliberately not unified: a
+// newly added camera with no videos yet exists in one and not the other.
+function cameraPicker(opts) {
+  opts = opts || {};
+  const select = document.createElement("select");
+  select.className = "cam-select";
+  if (opts.id) select.id = opts.id;
+  if (opts.ariaLabel) select.setAttribute("aria-label", opts.ariaLabel);
+
+  const entries = (opts.cameras || []).map(c =>
+    (typeof c === "string") ? {value: c, label: c} : c);
+
+  if (!entries.length) {
+    const o = document.createElement("option");
+    o.disabled = true;
+    o.selected = true;
+    o.textContent = opts.emptyLabel || "No cameras";
+    select.appendChild(o);
+    select.disabled = true;
+  } else {
+    entries.forEach(entry => {
+      const o = document.createElement("option");
+      o.value = entry.value;
+      o.textContent = entry.label;
+      if (String(entry.value) === String(opts.selected)) o.selected = true;
+      select.appendChild(o);
+    });
+    // No option matched opts.selected: leave none marked `selected`, so the
+    // browser's native default (first option) applies.
+  }
+
+  select.onchange = () => { if (opts.onSelect) opts.onSelect(select.value); };
+
+  if (opts.disabled) {
+    select.disabled = true;
+    select.title = opts.disabledTitle || "";
+  }
+
+  return select;
+}
+
+// (Re)builds the navbar's camera <select> from state.cameras/state.camera,
+// then syncs the rest of the nav to match (view-select value, disabled
+// state, active pills).
+function mountCameraPicker() {
+  const mount = document.getElementById("camera-picker");
+  if (!mount) return;
+  mount.innerHTML = "";
+  mount.appendChild(cameraPicker({
+    id: "camera-select",
+    ariaLabel: "Camera",
+    cameras: state.cameras,
+    selected: state.camera,
+    emptyLabel: "No cameras with videos yet",
+    onSelect: value => { state.camera = value; refresh(); },
+  }));
+  syncNav();
+}
+
+// Keeps the header's controls consistent with state.type: the view <select>
+// shows the last video view even while a camera-independent tab is open, the
+// camera picker is disabled (but left visible, with an explanatory tooltip)
+// on those tabs since they never read state.camera, and exactly one #types
+// pill is active only when state.type is itself one of those tabs.
+function syncNav() {
+  const viewSelect = document.getElementById("view-select");
+  if (viewSelect) viewSelect.value = state.lastVideoView;
+
+  const camSelect = document.getElementById("camera-select");
+  if (camSelect) {
+    const independent = !VIDEO_VIEWS.includes(state.type);
+    camSelect.disabled = independent || !state.cameras.length;
+    camSelect.title = independent ? "This view isn't camera-specific" : "";
+  }
+
+  document.querySelectorAll("#types .pill").forEach(p => {
+    p.classList.toggle("active", p.dataset.type === state.type);
+  });
 }
 
 function refresh() {
@@ -648,12 +751,23 @@ function refresh() {
   else renderList();
 }
 
+document.getElementById("view-select").addEventListener("change", e => {
+  state.type = e.target.value;
+  state.lastVideoView = e.target.value;
+  syncNav();
+  refresh();
+});
+
 document.getElementById("types").addEventListener("click", e => {
   if (!e.target.dataset.type) return;
   state.type = e.target.dataset.type;
   setActive(document.getElementById("types"), e.target);
+  syncNav();
   refresh();
 });
+
+const VIDEO_VIEWS = ["daily", "yearly", "events"];
+const TOP_LEVEL_VIEWS = ["forecast", "storage", "config"];
 
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
