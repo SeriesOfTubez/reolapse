@@ -393,6 +393,11 @@ judge for yourself rather than take it on faith:
 Issues and PRs welcome — especially reports of which Reolink models work. Keep
 changes focused and match the existing style.
 
+Wiki pages live in [`wiki/`](wiki/) in this repo and are published to the
+GitHub wiki automatically when a release tag is pushed — **edit them there in
+a PR, not in the browser**, or your changes will be overwritten by the next
+release.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
