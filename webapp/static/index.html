@@ -235,6 +235,12 @@
   .speed.active { color: var(--accent); border-color: var(--accent); }
   a.dl { color: var(--text-2); font-size: var(--fs-sm); text-decoration: none; }
   a.dl:hover { color: var(--accent); }
+  button.del {
+    background: none; border: 0; padding: 0;
+    color: var(--text-2); font: inherit; font-size: var(--fs-sm);
+    cursor: pointer;
+  }
+  button.del:hover { color: #e5534b; }
 
   #empty { color: var(--text-2); text-align: center; padding: var(--space-6); line-height: 1.6; }
   #empty code {
@@ -739,6 +745,7 @@ function play(v, itemEl) {
         ${[0.5, 1, 2, 4].map(s =>
           `<button class="speed${s === 1 ? " active" : ""}" data-speed="${s}">${s}&times;</button>`).join("")}
         <a class="dl" href="${v.url}" download>download</a>
+        <button class="del" title="Delete this video from disk">delete</button>
       </div>
     </div>`;
   area.querySelectorAll(".speed").forEach(b => {
@@ -748,6 +755,42 @@ function play(v, itemEl) {
       b.classList.add("active");
     };
   });
+  area.querySelector(".del").onclick = async () => {
+    if (!confirm(`Delete ${v.camera} ${v.label} (${v.size_mb} MB) from disk?\n\n`
+                 + deleteHint(v))) return;
+    const url = `/api/videos/${encodeURIComponent(v.camera)}/${v.type}`
+              + `/${encodeURIComponent(v.label)}.mp4`;
+    let res, data;
+    try {
+      res = await fetch(url, {method: "DELETE"});
+      data = await res.json();
+    } catch (e) { alert("Delete failed: " + e); return; }
+    if (res.status === 401) {
+      alert("Deleting a video needs the Config-page passcode — open the Config tab and sign in first.");
+      return;
+    }
+    if (data.error) { alert("Delete failed: " + data.error); return; }
+    if (data.warning) alert(data.warning);
+    state.videos = state.videos.filter(
+      x => !(x.camera === v.camera && x.type === v.type && x.label === v.label));
+    renderList();
+  };
+}
+
+// What deleting each video type actually costs. The rules differ: yearly
+// videos are always rebuildable (their frame archive is never pruned), daily
+// and event videos only while their source snapshots survive
+// storage.keep_snapshots_days.
+function deleteHint(v) {
+  if (v.type === "yearly") {
+    return `You can rebuild it any time: build_timelapse.py yearly --year ${v.label} --force`;
+  }
+  const date = (v.label.match(/^\d{4}-\d{2}-\d{2}/) || [])[0];
+  const cmd = v.type === "events"
+    ? `build_timelapse.py events --date ${date} --camera ${v.camera}`
+    : `build_timelapse.py daily --date ${date} --camera ${v.camera}`;
+  return `Rebuildable with \`${cmd}\` only while that day's snapshot frames still exist. `
+       + `Otherwise this is permanent.`;
 }
 
 function fmtGB(n) {
