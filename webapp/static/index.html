@@ -1692,6 +1692,7 @@ function buildCameraEventsSection(i) {
     || cfgGet("events.season_enabled", false);
   const burstTags = cfgGet("events.burst_tags", []) || [];
   const tagList = burstTags.length ? burstTags.join(" or ") : "a burst";
+  const gInclude = cfgGet("daily_video.include_events", false);
 
   const box = document.createElement("div");
   box.className = "cfg-subsection";
@@ -1715,6 +1716,22 @@ function buildCameraEventsSection(i) {
     + "tight framing — where the extra frames are just disk and the clip is a video of nothing "
     + "happening. Frames still get tagged either way, so the metadata stays complete.",
     checkboxField(`cameras.${i}.events_enabled`, {default: true})));
+
+  const inclRow = fieldRow("Include event frames in daily video",
+    "Overrides the global Daily video setting for this camera only. Off leaves this camera's "
+    + `burst frames out of its daily video; on weaves them in. The global setting is currently `
+    + `${gInclude ? "on" : "off"}, and this follows it until you touch this checkbox. Only `
+    + "applies while Follow weather events above is on — a camera that ignores events never "
+    + "captured anything extra to leave out.",
+    checkboxField(`cameras.${i}.include_events_in_daily`, {default: gInclude}));
+  box.appendChild(inclRow);
+
+  // Meaningless while this camera ignores events — same pattern as the mode /
+  // buffer rows in the Capture schedule section above.
+  const eventsToggle = box.querySelector('input[type="checkbox"]');
+  const syncVisibility = (on) => { inclRow.style.display = on ? "" : "none"; };
+  syncVisibility(cfgGet(`cameras.${i}.events_enabled`, true));
+  if (eventsToggle) eventsToggle.addEventListener("change", () => syncVisibility(eventsToggle.checked));
 
   return box;
 }
@@ -1914,6 +1931,14 @@ function buildDailyVideoSection() {
   const sec = document.createElement("div");
   sec.className = "cfg-section";
   sec.innerHTML = `<h3>Daily video</h3>`;
+  sec.appendChild(fieldRow("Include event frames",
+    "While a storm or snow burst is active, capture speeds up to the burst interval, so those "
+    + "minutes end up far denser than the rest of the day and the daily video crawls through them. "
+    + "Off (the default) leaves frames captured inside an active burst out of the daily video — "
+    + "they still get their own clip on the Events tab, still count toward the yearly video's "
+    + "frame archive, and are still on disk. On weaves them into the daily video as before. "
+    + "Individual cameras can override this under their Weather events section.",
+    checkboxField("daily_video.include_events", {default: false})));
   sec.appendChild(fieldRow("Frame rate (fps)", "Playback speed of the rendered video, in frames per second. "
     + "Doesn't change how many snapshots are captured — just how quickly they play back. Higher fps means a "
     + "shorter, faster-paced video from the same day's frames.",
