@@ -10,6 +10,7 @@ import functools
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 import secrets
@@ -31,6 +32,8 @@ from common import (APP_VERSION, DEFAULT_CONFIG, load_config,  # noqa: E402
                     read_build_status, tzinfo_for, videos_dir)
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+log = logging.getLogger("reolapse.web")
 
 VIDEO_TYPES = ("daily", "yearly", "events")
 US_ZIP_RE = re.compile(r"^\d{5}$")
@@ -81,6 +84,84 @@ MIN_INTERVAL_SECONDS = 10
 
 # Keep in sync with forecast.py's MAX_FORECAST_DAYS — Open-Meteo's ceiling.
 MAX_FORECAST_DAYS = 10
+
+# --- Update check ------------------------------------------------------------
+# A quiet "a newer release exists" banner. Checked against GitHub's own
+# releases API, not npm/pip-style telemetry — no data about this install ever
+# leaves it. Cached in-process (same shape as forecast.py's _CACHE) so the
+# browser polling this on every page load doesn't turn into a GitHub API call
+# on every page load; a release lands at most every few weeks, so six hours of
+# staleness costs nothing. On any failure (offline, rate-limited, GitHub down)
+# this just silently reports no update — a missed banner for a few hours is
+# nothing, unlike the weather APIs where a wrong "all clear" hides a storm.
+GITHUB_RELEASES_LATEST_URL = "https://api.github.com/repos/SeriesOfTubez/reolapse/releases/latest"
+UPDATE_CHECK_CACHE_SECONDS = 6 * 3600
+
+_update_cache = {"checked_at": 0.0, "latest_version": None, "release_url": None}
+_update_cache_lock = threading.Lock()
+
+
+def _version_tuple(v):
+    """(major, minor, patch) for a plain 'X.Y.Z' string, or None if it isn't
+    one — a pre-release tag, a 'v' prefix left in by mistake, anything
+    unparseable. None compares as "don't know", never as an update."""
+    try:
+        parts = tuple(int(p) for p in str(v).split("."))
+        return parts if parts else None
+    except (TypeError, ValueError):
+        return None
+
+
+def check_for_update():
+    """{"current_version", "latest_version", "update_available", "release_url"}.
+
+    update_available is only True when the latest release is a STRICTLY newer
+    version than what's running — never merely "different" — so a dev build
+    running ahead of the last tag (e.g. this very checkout, mid-development)
+    doesn't light up the banner just because its VERSION file hasn't been
+    bumped yet.
+    """
+    now = time.time()
+    with _update_cache_lock:
+        stale = now - _update_cache["checked_at"] > UPDATE_CHECK_CACHE_SECONDS
+    if stale:
+        try:
+            resp = requests.get(GITHUB_RELEASES_LATEST_URL, timeout=5,
+                                headers={"Accept": "application/vnd.github+json"})
+            resp.raise_for_status()
+            data = resp.json()
+            tag = str(data.get("tag_name") or "").lstrip("v")
+            # Trust the tag/version text (rendered as text, never HTML) but
+            # not an arbitrary URL — only ever hand the frontend a link that
+            # actually points at this project's own GitHub releases page.
+            html_url = str(data.get("html_url") or "")
+            if not html_url.startswith("https://github.com/SeriesOfTubez/reolapse/releases/"):
+                html_url = None
+            with _update_cache_lock:
+                _update_cache["checked_at"] = now
+                _update_cache["latest_version"] = tag or None
+                _update_cache["release_url"] = html_url
+        except Exception:
+            log.warning("update check failed", exc_info=True)
+            with _update_cache_lock:
+                # Still mark it checked — a GitHub outage shouldn't turn into a
+                # request-per-page-load loop until it recovers.
+                _update_cache["checked_at"] = now
+
+    with _update_cache_lock:
+        latest = _update_cache["latest_version"]
+        release_url = _update_cache["release_url"]
+
+    current_t = _version_tuple(APP_VERSION)
+    latest_t = _version_tuple(latest)
+    update_available = bool(current_t and latest_t and latest_t > current_t)
+    return {
+        "current_version": APP_VERSION,
+        "latest_version": latest,
+        "update_available": update_available,
+        "release_url": release_url if update_available else None,
+    }
+
 
 # --- Config-page authentication --------------------------------------------
 # A single optional passcode (no username) gates the Config page and its
@@ -571,6 +652,12 @@ def create_app(cfg, config_path=None):
             # Only reached when there's nothing cached to fall back on either.
             return jsonify({"error": f"forecast unavailable: {exc}", "days": [],
                             "warnings": [], "sources": {}}), 503
+
+    @app.get("/api/update-check")
+    def update_check():
+        # Cached at module level (check_for_update), so this costs nothing on
+        # a normal page load — see the comment on GITHUB_RELEASES_LATEST_URL.
+        return jsonify(check_for_update())
 
     @app.get("/api/storage")
     def storage():

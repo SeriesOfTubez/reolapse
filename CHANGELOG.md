@@ -7,6 +7,13 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **A few small navigation niceties.** The logo/title in the top-left is now
+  clickable and takes you back to Daily videos. The version number next to it
+  links to that release's notes on GitHub. And when a newer release exists, a
+  small banner appears linking straight to its release notes — checked
+  against GitHub's releases API, cached for 6 hours so it costs nothing on a
+  normal page load, and silent (no banner, no error) if GitHub is unreachable
+  or the check fails. New `GET /api/update-check`.
 - **Storm/snow sensitivity sliders, and a real live-snow threshold.**
   Storm and snow detection thresholds could only be tuned as raw numbers
   buried in the Config page or `config.yaml` — there was no quick "make this
