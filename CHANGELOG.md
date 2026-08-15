@@ -6,6 +6,8 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-15
+
 ### Added
 - **A few small navigation niceties.** The logo/title in the top-left is now
   clickable and takes you back to Daily videos. The version number next to it
