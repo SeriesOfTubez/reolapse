@@ -245,7 +245,7 @@ def validate_config(cfg):
     # would otherwise fail open (fall back to the default) and quietly not do
     # what the user asked.
     for key in ("storm_cape_min", "storm_precip_mm", "storm_gust_kmh",
-                "stale_grace_minutes", "forecast_snow_cm_min"):
+                "stale_grace_minutes", "forecast_snow_cm_min", "snow_cm_min"):
         val = (cfg.get("events") or {}).get(key)
         if val is None:
             continue

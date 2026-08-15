@@ -233,6 +233,22 @@ events:
   storm_precip_mm: 0.1        # mm in the reporting interval = "actually raining"
   storm_gust_kmh: 60          # gusts this strong tag a storm on their own, wet
                               # or dry — that's a squall/gust front worth having
+  snow_cm_min: 0.0            # cm in the reporting interval before live snow
+                              # tagging fires. NOT the same unit as
+                              # forecast_snow_cm_min below (that's cm
+                              # accumulated across a whole forecast day — this
+                              # is cm since the last poll). At 0.0 (default),
+                              # any Open-Meteo snow code or any measurable
+                              # snowfall at all tags snow. Raise it to require
+                              # an actual snowfall rate. Both this and the
+                              # storm thresholds above only govern the
+                              # Open-Meteo path — NWS alerts/observations are
+                              # keyword matches and stay unthresholded either
+                              # way. The Config page exposes both as Storm/
+                              # Snow detection tuning sliders with
+                              # Conservative/Balanced/Aggressive presets; the
+                              # numbers here are what actually runs regardless
+                              # of what the slider shows.
   stale_grace_minutes: 15     # if a weather API times out (these free services
                               # hand out 502/503s regularly), keep its last known
                               # tags this long instead of reading the outage as

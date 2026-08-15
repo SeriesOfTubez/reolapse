@@ -27,6 +27,8 @@ not: reference them as `${VAR}` and put the values in `.env`. Highlights:
 | `events.weather_enabled` | Storm/snow/rain tagging + burst capture (needs `events.zip` or `latitude`/`longitude`) |
 | `events.lunar_enabled` | Moon-event tagging — no location required |
 | `events.season_enabled` | Spring/summer/fall/winter tagging on frames + video metadata — no location required |
+| `events.storm_cape_min` / `storm_precip_mm` / `storm_gust_kmh` | Live storm-detection thresholds — see [Weather & Storm Detection](Weather-and-Storm-Detection). Config page: **Storm detection tuning** slider |
+| `events.snow_cm_min` | Live snow-detection threshold, cm in the reporting interval (default `0.0`) — **not** the same unit as `forecast_snow_cm_min` below. Config page: **Snow detection tuning** slider — see [Weather & Storm Detection](Weather-and-Storm-Detection#how-snow-is-detected) |
 | `events_video.tags` | Which tags get their own `<date>_<tag>.mp4` clip (default `storm`, `snow`; any tag works, including moon events) |
 | `events_video.min_seconds` | Floor a clip gets padded up to (default `5`); every tagged span gets a clip, but one shorter than this is padded with extra frames from around the event rather than skipped. Converted to a frame count via `events_video.fps`. Pre-0.4 configs' `min_frames` is still honored if `min_seconds` is absent — see [Weather & Storm Detection](Weather-and-Storm-Detection) |
 | `events_video.gap_minutes` / `gap_minutes_by_tag` | Minutes of quiet that still count as one event (default `20`); optional per-tag override. Shared with the daily video's event-frame exclusion filter, so both agree on where one event ends and the next begins |
