@@ -377,19 +377,34 @@ def prune_event_videos(cfg):
                     log.info("%s: pruned event video %s (older than %d days)",
                               cam["name"], f.name, days)
 
+    sync_events_index(cfg)
+
+
+def sync_events_index(cfg):
+    """Drop events.jsonl entries whose clip is no longer on disk. Returns the
+    number dropped.
+
+    Two things remove clips behind the index's back — age pruning above, and a
+    manual delete from the web UI — so both call this rather than each growing
+    its own copy of the reconciliation.
+    """
     index_path = cfg["storage"]["root"] / "events.jsonl"
     if not index_path.exists():
-        return
-    kept = []
+        return 0
+    kept, dropped = [], 0
     for line in index_path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
         entry = json.loads(line)
         if (videos_dir(cfg) / entry["video"]).exists():
             kept.append(entry)
-    with open(index_path, "w", encoding="utf-8") as f:
-        for entry in kept:
-            f.write(json.dumps(entry) + "\n")
+        else:
+            dropped += 1
+    if dropped:
+        with open(index_path, "w", encoding="utf-8") as f:
+            for entry in kept:
+                f.write(json.dumps(entry) + "\n")
+    return dropped
 
 
 def tag_spans(cfg, date, tag, gap_minutes=20):
