@@ -17,6 +17,38 @@ which has no lightning to protect. If weather tagging is enabled without a
 resolvable location, storm/snow tagging is skipped and the web UI shows a
 warning banner.
 
+## Event frames in the daily video
+
+While a storm or snow burst is active, capture drops to
+`events.burst_interval_seconds`, and those minutes land in the same
+`data/snapshots/<camera>/<date>/` folder as everything else — so a storm hour
+is far denser than the rest of the day, and the daily video crawls through it
+at a fraction of its normal pace.
+
+`daily_video.include_events` (default `false`) excludes frames captured
+inside an active burst span from the daily `.mp4` **only**. The event clip on
+the Events tab, the yearly video's frame archive, and the frames on disk are
+all untouched — this setting affects nothing but which frames make it into
+that one video. Exclusion is driven by `events.burst_tags` specifically (not
+`events_video.tags`, which is a separate, independent list of what gets its
+own clip and can legitimately include non-burst tags like moon phases), and
+spans are reconstructed from `data/conditions/<date>.jsonl` with the same
+20-minute gap merge the event clips use — so a frame is excluded from the
+daily video exactly when it's inside the span that produced an event clip,
+never more or less. It's skipped entirely for `events_enabled: false`
+cameras: they never burst, so during a site-wide storm their frames are
+ordinary cadence frames, and excluding them would gouge a hole in an
+unaffected camera's day.
+
+Any camera can override the global setting with `include_events_in_daily` —
+see the [Configuration Reference](Configuration-Reference). If a day ends up
+almost entirely inside a burst span, the daily video for that day is skipped
+rather than rendered nearly empty (the yearly archive still gets that day's
+frames regardless). Changed your mind after the fact? Rebuild it with
+`build_timelapse.py daily --date YYYY-MM-DD --camera X` — that only works
+while the day's snapshot frames still exist, i.e. within
+`storage.keep_snapshots_days`.
+
 ## How a storm is detected
 
 Weather services report "thunderstorm" far less often than thunderstorms

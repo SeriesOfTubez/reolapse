@@ -22,8 +22,9 @@
   other unauthenticated route here.
 - **Optional Config-page passcode.** You can put a single passcode (no
   username) in front of the Config page and its write/scan endpoints
-  (`/api/config`, `/api/discover`, `/api/discover/identify`, `/api/restart`)
-  while video browsing stays open for casual LAN viewing. It's **opt-in**:
+  (`/api/config`, `/api/discover`, `/api/discover/identify`, `/api/restart`,
+  `DELETE /api/videos/...`) while video browsing stays open for casual LAN
+  viewing. It's **opt-in**:
   set it from the Config page itself under **Config page access** (or remove
   it there later). Details:
   - The passcode is stored only as a **salted scrypt hash** in `config.yaml`
@@ -38,6 +39,10 @@
   - There's a modest failed-login throttle. This is a convenience gate for a
     trusted LAN, **not** a substitute for the VPN/reverse-proxy guidance
     above — the cookie rides over plain HTTP since ReoLapse serves no TLS.
+- **Deleting a video is gated the same way.** With no passcode set, anyone
+  on the LAN can delete a video from the player — but that's the same
+  exposure as being able to rewrite `config.yaml` and restart services,
+  which they already have on an open install.
 - Credentials live in `.env` (gitignored), never in `config.yaml`.
 - Prefer a **dedicated, least-privilege** camera/NVR account for ReoLapse. The
   Snap API passes credentials as URL parameters, so avoid `&`, `#`, `%` in that

@@ -12,6 +12,7 @@ not: reference them as `${VAR}` and put the values in `.env`. Highlights:
 | `cameras[].daylight_window` | Per-camera day/night schedule; each key falls back to `capture.daylight_window` — see [Per-camera schedules](PTZ-and-Night-Capture#per-camera-schedules) |
 | `cameras[].interval_seconds` | Per-camera capture cadence; falls back to `capture.interval_seconds` |
 | `cameras[].events_enabled` | `false` makes a camera ignore events entirely — no burst capture, no event clips (default `true`) — see [Cameras that sit out events](PTZ-and-Night-Capture#cameras-that-sit-out-events) |
+| `cameras[].include_events_in_daily` | Per-camera override of `daily_video.include_events`; omit the key to follow the global setting |
 | `capture.timezone` | IANA timezone for capture timing/day boundaries; blank auto-detects from location, else falls back to the host clock |
 | `capture.interval_seconds` | Base capture cadence (default 60, minimum 10) |
 | `capture.start_time`/`end_time` | Optional fixed daily capture window |
@@ -19,6 +20,7 @@ not: reference them as `${VAR}` and put the values in `.env`. Highlights:
 | `storage.keep_snapshots_days` | Retention for raw frames after their video builds |
 | `daily_video.deflicker_size` | Deflicker window; `0` disables |
 | `daily_video.retention_days` | Delete a daily video this many days after its date; `0` = forever |
+| `daily_video.include_events` | Weave storm/snow **burst** frames into the daily video (default `false`) — see [Event frames in the daily video](Weather-and-Storm-Detection#event-frames-in-the-daily-video) |
 | `yearly.min_days_before_render` | Wait until this many days are archived before rendering the yearly video (default 30); `0` renders as soon as any frames exist, `yearly --force` overrides once |
 | `yearly.video_frames_per_day` / `video_window` | Pacing of the yearly video |
 | `yearly.retention_years` | Delete a yearly video once it's this many years old; `0` = forever. Cheap to set low — see [Storage estimates](Storage-and-Performance#storage-estimates) |

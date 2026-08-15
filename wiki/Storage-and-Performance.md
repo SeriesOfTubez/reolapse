@@ -62,6 +62,32 @@ This recalculates after every nightly build, so it tracks reality as your
 retention settings, camera count, or event frequency change — no manual math
 required.
 
+### Deleting a video by hand
+
+A **delete** button sits next to **download** in the player, for clearing out
+a junk video (camera glare, a false storm trigger) the moment you spot it
+instead of waiting on retention settings to catch it. What deleting each
+video type actually costs differs, and the confirmation dialog states the
+real rule rather than a generic warning:
+
+- **Yearly videos are always rebuildable** — `build_timelapse.py yearly
+  --year YYYY --force` regenerates one any time, since the frame archive it's
+  built from is never pruned.
+- **Daily and event videos are only rebuildable while their source frames
+  still exist** — `build_timelapse.py daily --date YYYY-MM-DD --camera X` (or
+  `events` for an event clip), which only works within
+  `storage.keep_snapshots_days` of that day. Past that window, deletion is
+  permanent.
+
+Deleting an event clip also drops its `events.jsonl` index entry immediately,
+rather than waiting for the next nightly build to notice the file is gone.
+Deleting any video does **not** free the snapshot frames it was built from —
+those are governed by their own retention (`storage.keep_snapshots_days`),
+independent of what videos exist.
+
+This is a write/delete action, so it's gated by the Config-page passcode when
+one is set — see [Security](Security).
+
 ## Performance
 
 Reference deployment: a Proxmox VM with **1 vCPU and 1 GB RAM** (Ubuntu 26.04
