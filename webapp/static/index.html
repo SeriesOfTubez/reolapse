@@ -71,7 +71,8 @@
     flex-wrap: wrap;
   }
 
-  .brand { display: flex; align-items: center; gap: var(--space-2); }
+  .brand { display: flex; align-items: center; gap: var(--space-2); cursor: pointer; }
+  .brand:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
   .brand img { width: 26px; height: 26px; display: block; }
   .brand h1 {
     margin: 0;
@@ -79,9 +80,40 @@
     font-weight: var(--fw-semibold);
     letter-spacing: 0.2px;
   }
-  .brand .version { color: var(--text-3); font-size: var(--fs-xs); align-self: flex-end; margin-bottom: 3px; }
+  .brand .version {
+    color: var(--text-3); font-size: var(--fs-xs); align-self: flex-end;
+    margin-bottom: 3px; text-decoration: none;
+  }
+  /* The version link sits inside the clickable .brand "go home" region —
+     stop its own click from bubbling up and re-triggering that navigation
+     (see the version anchor's own click handler in the script). */
+  .brand .version:hover { text-decoration: underline; color: var(--accent); }
   .build-indicator { display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--accent); white-space: nowrap; }
   .build-indicator[hidden] { display: none; }
+
+  /* margin-left: auto pins this to the far right of the header regardless of
+     how much else is in the flex row (camera count, pill count, etc.) */
+  .help-menu { position: relative; margin-left: auto; }
+  .help-btn {
+    width: 26px; height: 26px; border-radius: var(--radius-pill);
+    border: 1px solid var(--border); background: var(--surface-1);
+    color: var(--text-2); font: var(--fw-medium) var(--fs-sm)/1 var(--font-sans);
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    padding: 0; transition: color var(--transition), border-color var(--transition);
+  }
+  .help-btn:hover, .help-btn[aria-expanded="true"] { color: var(--text-1); border-color: var(--border-strong); }
+  .help-dropdown {
+    position: absolute; top: calc(100% + var(--space-2)); right: 0;
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: var(--radius-md); padding: var(--space-1);
+    display: flex; flex-direction: column; min-width: 170px; z-index: 20;
+  }
+  .help-dropdown[hidden] { display: none; }
+  .help-dropdown a {
+    padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm);
+    color: var(--text-2); text-decoration: none; font-size: var(--fs-sm);
+  }
+  .help-dropdown a:hover { background: var(--surface-2); color: var(--text-1); }
   .build-spin { width: 10px; height: 10px; border: 2px solid var(--accent); border-top-color: transparent; border-radius: 50%; display: inline-block; animation: build-spin 0.8s linear infinite; }
   @keyframes build-spin { to { transform: rotate(360deg); } }
 
@@ -594,10 +626,10 @@
 </head>
 <body>
 <header>
-  <div class="brand">
+  <div class="brand" id="home-link" role="button" tabindex="0" title="Back to Daily videos">
     <img src="/static/logo.svg" alt="">
     <h1>ReoLapse</h1>
-    <span class="version" id="version"></span>
+    <a class="version" id="version" target="_blank" rel="noopener noreferrer"></a>
   </div>
   <div class="nav-group">
     <label class="nav-label" for="camera-select">Camera</label>
@@ -614,6 +646,14 @@
     <button class="pill" data-type="config">Config</button>
   </div>
   <div class="build-indicator" id="build-indicator" hidden></div>
+  <div class="help-menu">
+    <button id="help-btn" class="help-btn" aria-haspopup="true" aria-expanded="false" title="Help &amp; feedback">?</button>
+    <div class="help-dropdown" id="help-dropdown" hidden>
+      <a href="https://github.com/SeriesOfTubez/reolapse/wiki" target="_blank" rel="noopener noreferrer">Wiki</a>
+      <a href="https://github.com/SeriesOfTubez/reolapse/issues" target="_blank" rel="noopener noreferrer">Report an issue</a>
+      <a href="https://github.com/SeriesOfTubez/reolapse/discussions" target="_blank" rel="noopener noreferrer">Discussions</a>
+    </div>
+  </div>
 </header>
 <div id="warnings"></div>
 <main>
@@ -636,7 +676,10 @@ async function load() {
   state.videos = data.videos;
   if (data.version) {
     const v = document.getElementById("version");
-    if (v) v.textContent = "v" + data.version;
+    if (v) {
+      v.textContent = "v" + data.version;
+      v.href = `https://github.com/SeriesOfTubez/reolapse/releases/tag/v${data.version}`;
+    }
   }
 
   const warnBox = document.getElementById("warnings");
@@ -647,6 +690,7 @@ async function load() {
     div.textContent = w;
     warnBox.appendChild(div);
   });
+  checkForUpdate();
 
   // Keep the currently-selected camera across a refresh (e.g. the poll that
   // fires when a nightly build finishes) instead of always snapping back to
@@ -773,6 +817,60 @@ document.getElementById("types").addEventListener("click", e => {
   syncNav();
   refresh();
 });
+
+function goHome() {
+  state.type = "daily";
+  state.lastVideoView = "daily";
+  syncNav();
+  refresh();
+}
+const homeLink = document.getElementById("home-link");
+homeLink.addEventListener("click", goHome);
+homeLink.addEventListener("keydown", e => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); goHome(); }
+});
+// The version link lives inside the clickable brand region — without this,
+// opening the release notes would also fire goHome() via bubbling.
+document.getElementById("version").addEventListener("click", e => e.stopPropagation());
+
+const helpBtn = document.getElementById("help-btn");
+const helpDropdown = document.getElementById("help-dropdown");
+function closeHelpMenu() {
+  helpDropdown.hidden = true;
+  helpBtn.setAttribute("aria-expanded", "false");
+}
+helpBtn.addEventListener("click", e => {
+  e.stopPropagation();
+  if (!helpDropdown.hidden) { closeHelpMenu(); return; }
+  helpDropdown.hidden = false;
+  helpBtn.setAttribute("aria-expanded", "true");
+});
+document.addEventListener("click", e => {
+  if (!helpDropdown.hidden && !e.target.closest(".help-menu")) closeHelpMenu();
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && !helpDropdown.hidden) closeHelpMenu();
+});
+
+function checkForUpdate() {
+  fetch("/api/update-check").then(r => r.json()).then(u => {
+    const warnBox = document.getElementById("warnings");
+    const existing = warnBox.querySelector(".update-banner");
+    if (existing) existing.remove();
+    if (!u.update_available || !u.release_url) return;
+    const div = document.createElement("div");
+    div.className = "warning update-banner";
+    div.append(`A new version (v${u.latest_version}) is available — `);
+    const link = document.createElement("a");
+    link.href = u.release_url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "see what's new";
+    div.appendChild(link);
+    div.append(".");
+    warnBox.appendChild(div);
+  }).catch(() => {});   // best-effort; a failed check just means no banner
+}
 
 const VIDEO_VIEWS = ["daily", "yearly", "events"];
 const TOP_LEVEL_VIEWS = ["forecast", "storage", "config"];
