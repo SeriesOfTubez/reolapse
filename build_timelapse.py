@@ -439,7 +439,6 @@ def tag_spans(cfg, date, tag, gap_minutes=20):
                 if line.strip()]
 
     day_start = dt.datetime.combine(date, dt.time.min)
-    day_end = day_start + dt.timedelta(days=1)
 
     active_since = None
     prev = entries(date - dt.timedelta(days=1))
@@ -456,7 +455,12 @@ def tag_spans(cfg, date, tag, gap_minutes=20):
             spans.append((active_since, ts))
             active_since = None
     if active_since is not None:
-        spans.append((active_since, day_end))
+        # A span still active at the end of the log gets closed at 23:59:59
+        # rather than midnight ("000000") — the frame filter below is a
+        # string comparison of HHMMSS stems, so a "000000" upper bound can
+        # never match any frame and an event still running at midnight would
+        # otherwise produce zero frames and no clip.
+        spans.append((active_since, dt.datetime.combine(date, dt.time.max)))
 
     merged = []
     for start, end in spans:
