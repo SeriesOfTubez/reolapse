@@ -32,10 +32,11 @@ all untouched — this setting affects nothing but which frames make it into
 that one video. Exclusion is driven by `events.burst_tags` specifically (not
 `events_video.tags`, which is a separate, independent list of what gets its
 own clip and can legitimately include non-burst tags like moon phases), and
-spans are reconstructed from `data/conditions/<date>.jsonl` with the same
-20-minute gap merge the event clips use — so a frame is excluded from the
-daily video exactly when it's inside the span that produced an event clip,
-never more or less. It's skipped entirely for `events_enabled: false`
+spans are reconstructed from `data/conditions/<date>.jsonl` with the same,
+configurable gap merge (`events_video.gap_minutes`) the event clips use — so
+a frame is excluded from the daily video exactly when it's inside the span
+that produced an event clip, never more or less. It's skipped entirely for
+`events_enabled: false`
 cameras: they never burst, so during a site-wide storm their frames are
 ordinary cadence frames, and excluding them would gouge a hole in an
 unaffected camera's day.

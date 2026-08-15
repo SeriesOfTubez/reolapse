@@ -1198,6 +1198,19 @@ function cfgSet(path, value) {
   obj[parts[parts.length - 1]] = value;
 }
 
+// Removes a key entirely (vs. cfgSet(path, null), which would leave a dead
+// "key: null" line in the saved config.yaml) — used by migrations that
+// rename a key, so the old one doesn't linger.
+function cfgDelete(path) {
+  const parts = path.split(".");
+  let obj = state.configData;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (obj[parts[i]] == null || typeof obj[parts[i]] !== "object") return;
+    obj = obj[parts[i]];
+  }
+  delete obj[parts[parts.length - 1]];
+}
+
 function fieldRow(labelText, hintText, inputEl, colLayout) {
   const row = document.createElement("div");
   row.className = "cfg-row" + (colLayout ? " cfg-row-col" : "");
@@ -2208,10 +2221,33 @@ function buildEventsVideoSection() {
     + "— e.g. a dedicated video for each storm. Any tag works here, including moon phases and seasons, not "
     + "just weather.",
     tagCheckGroup("events_video.tags", EVENT_TAGS), true));
-  sec.appendChild(fieldRow("Minimum frames", "Skips rendering a clip for a tagged span shorter than this many "
-    + "frames — filters out brief blips (e.g. a storm alert that clears in a couple of minutes) that wouldn't "
-    + "make a meaningful clip.",
-    numberField("events_video.min_frames", {default: 30})));
+  // min_frames -> min_seconds migration: a config.yaml written before this
+  // rename only has min_frames, which is still honored (see
+  // common.event_min_frames) but is invisible in this UI's own units. Same
+  // pattern as timezoneField()'s auto-migration and the location radios
+  // nulling out lat/lon — mutate state.configData in place at render time,
+  // before the user does anything, so what's on screen matches what a Save
+  // would actually write.
+  if (cfgGet("events_video.min_seconds", null) == null && cfgGet("events_video.min_frames", null) != null) {
+    const fps = cfgGet("events_video.fps", 30) || 30;
+    const minFrames = cfgGet("events_video.min_frames", 30);
+    cfgSet("events_video.min_seconds", Math.round((minFrames / fps) * 10) / 10);
+    cfgDelete("events_video.min_frames");
+  }
+  sec.appendChild(fieldRow("Minimum clip length (seconds)",
+    "Every tagged span still gets a clip, even a brief one (e.g. a storm alert that clears in a couple of "
+    + "minutes) — but a clip shorter than this gets padded out with extra frames from before/after the event "
+    + "so it's never just a blink-and-you-miss-it couple of frames. Converted to a frame count using Frame "
+    + "rate (fps) below.",
+    numberField("events_video.min_seconds", {default: 5, min: 0, step: "0.5"})));
+  sec.appendChild(fieldRow("Merge gap (minutes)",
+    "Two spans of the same tag separated by less than this are rendered as one clip instead of two — a "
+    + "storm that briefly drops below threshold and comes right back still gets a single continuous video. "
+    + "The same gap also decides which frames are held out of the daily video when Daily video > Include "
+    + "event frames is off, so the two always agree on where one event ends and the next begins. Per-tag "
+    + "overrides aren't editable in this UI — set events_video.gap_minutes_by_tag directly in config.yaml "
+    + "(a hand-set value there survives a save from this page untouched).",
+    numberField("events_video.gap_minutes", {default: 20, min: 0})));
   sec.appendChild(fieldRow("Frame rate (fps)", "Playback speed of event clips, in frames per second — same "
     + "idea as Daily video's Frame rate.", numberField("events_video.fps", {default: 30})));
   sec.appendChild(fieldRow("Quality (CRF)", "x264 quality for event clips — same scale as Daily video's "

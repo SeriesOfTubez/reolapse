@@ -254,7 +254,23 @@ events:
 
 events_video:
   tags: [storm, snow]         # render a clip per active span of these tags
-  min_frames: 30
+  min_seconds: 5               # every tagged span gets a clip, even a brief
+                              # one — but a span shorter than this gets padded
+                              # with extra frames from around the event so the
+                              # clip is never just a couple of frames long.
+                              # Translated to a frame count via fps below. The
+                              # pre-0.4 key `min_frames` is still honored if
+                              # this is absent, so an existing config.yaml
+                              # keeps behaving exactly as it did; the Config
+                              # page migrates min_frames -> min_seconds for you.
+  gap_minutes: 20              # two spans of the same tag closer together
+                              # than this render as one clip instead of two.
+                              # Also decides which frames the daily video
+                              # excludes when daily_video.include_events is
+                              # off, so the two always agree.
+  # gap_minutes_by_tag:       # per-tag override — e.g. a slower-moving snow
+  #   snow: 45                # event can tolerate a longer lull than a storm
+  #   storm: 15                # before it's treated as a separate event
   fps: 30
   crf: 20
   preset: medium               # see daily_video.preset above

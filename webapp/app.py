@@ -254,6 +254,30 @@ def validate_config(cfg):
         elif val < 0:
             problems.append(f"events.{key} must not be negative")
 
+    # events_video: only the new/changed keys — adding checks for pre-existing
+    # fps/crf/preset would be scope creep, a behaviour change unrelated to
+    # this feature.
+    evcfg = cfg.get("events_video") or {}
+    for key in ("min_seconds", "min_frames", "gap_minutes"):
+        val = evcfg.get(key)
+        if val is None:
+            continue
+        if isinstance(val, bool) or not isinstance(val, (int, float)):
+            problems.append(f"events_video.{key} must be a number")
+        elif val < 0:
+            problems.append(f"events_video.{key} must not be negative")
+
+    gap_by_tag = evcfg.get("gap_minutes_by_tag")
+    if gap_by_tag is not None:
+        if not isinstance(gap_by_tag, dict):
+            problems.append("events_video.gap_minutes_by_tag must be a mapping")
+        else:
+            for tag, val in gap_by_tag.items():
+                if isinstance(val, bool) or not isinstance(val, (int, float)):
+                    problems.append(f"events_video.gap_minutes_by_tag[{tag!r}] must be a number")
+                elif val < 0:
+                    problems.append(f"events_video.gap_minutes_by_tag[{tag!r}] must not be negative")
+
     # The Forecast tab's window. Open-Meteo serves 10 days and no more, so a
     # larger number would silently be clamped rather than do what was asked.
     days = (cfg.get("events") or {}).get("forecast_days")

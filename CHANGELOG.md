@@ -33,6 +33,41 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   gone. `/videos/<camera>/<vtype>/<name>` (the unauthenticated browse route)
   now validates the camera name too, closing a gap where only `name` and
   `vtype` were checked. Existing configs are unaffected.
+- **Configurable merge gap for event clips.** Two spans of the same tag close
+  together used to always merge into one clip after a fixed 20-minute gap.
+  That gap is now `events_video.gap_minutes` (still defaults to 20), with an
+  optional `gap_minutes_by_tag` override for individual tags — a slower-moving
+  snow event can tolerate a longer lull than a storm before it's split into a
+  separate clip. The event-clip builder and the daily video's event-frame
+  exclusion filter (`daily_video.include_events`) both reconstruct spans
+  through the same resolver, so they always agree on where one event ends and
+  the next begins, regardless of which one changes. Editable from the Config
+  page under **Event video clips**; per-tag overrides are config-file only.
+
+### Changed
+- **`events_video.min_frames` is renamed to `events_video.min_seconds`, and
+  now pads short clips instead of dropping them.** The minimum-clip-length
+  setting is a duration; a key literally named `min_frames` that actually
+  meant "roughly one second per unit" was misleading. `min_seconds` (default
+  `5`) is converted to a frame count via `events_video.fps` at build time.
+  Every tagged span gets a clip now, even a brief one — a span shorter than
+  the minimum is padded out with extra frames from before/after the event
+  instead of being skipped, so a real but short-lived storm alert still gets
+  a watchable clip rather than silently producing nothing. Existing configs
+  keep working unchanged —
+  `min_frames` is still honored if `min_seconds` is absent, so a config.yaml
+  that already sets `min_frames: 30` keeps its old ~1-second floor forever
+  unless you act. To adopt the new 5-second default, replace `min_frames: 30`
+  with `min_seconds: 5` in config.yaml, or just open the Config page, which
+  migrates it for you automatically the moment you view **Event video clips**.
+
+### Fixed
+- **An event still active at midnight produced zero frames and no clip.**
+  `tag_spans()` closed a still-open span at end-of-day using a bound that
+  formatted as `"000000"`, which a string comparison against frame timestamps
+  can never match. Late-running storms/snow events now close at `23:59:59`
+  instead, so they get the clip (and, post event-frame-in-daily-video, the
+  correct daily-video exclusion) they should have all along.
 
 ## [0.3.0] - 2026-08-08
 
