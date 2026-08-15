@@ -1,0 +1,92 @@
+name: Release
+
+# Fired by pushing a vX.Y.Z tag — the same single action that already triggers
+# the container images in publish-image.yml. Everything else a release needs
+# happens here, so a release is one action instead of four manual ones:
+#   1. guard  — VERSION and CHANGELOG.md must agree with the tag
+#   2. notes  — publish a GitHub Release whose body IS the CHANGELOG section
+#   3. wiki   — mirror wiki/ in this repo onto the GitHub wiki
+#
+# Maintainer process (unchanged except that steps 3 and 4 collapse into one):
+#   1. branch release/X.Y.Z — move [Unreleased] into ## [X.Y.Z] - YYYY-MM-DD,
+#      bump VERSION, and edit wiki/*.md for anything this release changes
+#   2. merge the PR to main
+#   3. git tag vX.Y.Z && git push origin vX.Y.Z
+#
+# WIKI PAGES ARE EDITED IN wiki/ IN THIS REPO, NOT IN THE BROWSER. This job
+# mirrors wiki/ over the wiki repo, so a page edited on github.com is
+# overwritten — or deleted — by the next release.
+
+on:
+  push:
+    tags: ["v*"]
+
+# contents: write covers both creating the release and pushing to
+# <repo>.wiki.git. Declaring any permissions block resets everything else to
+# none, so this has to be explicit.
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: VERSION must match the tag
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          file="$(tr -d '[:space:]' < VERSION)"
+          if [ "$tag" != "$file" ]; then
+            echo "::error::VERSION is '$file' but the tag is '$GITHUB_REF_NAME'." \
+                 "Bump VERSION on main and retag, or delete this tag."
+            exit 1
+          fi
+
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          python3 scripts/changelog_section.py "$GITHUB_REF_NAME" > release-notes.md
+          echo "--- release notes ---"
+          cat release-notes.md
+
+      # Idempotent so a re-run after a transient failure updates the release
+      # instead of erroring on "already exists".
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" \
+              --title "ReoLapse $GITHUB_REF_NAME" --notes-file release-notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "ReoLapse $GITHUB_REF_NAME" --notes-file release-notes.md
+          fi
+
+      # ref: master is required — a wiki repo's default branch is master and
+      # has no vX.Y.Z tag, so checkout's default (github.ref) would fail.
+      - name: Check out the wiki repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}.wiki
+          ref: master
+          path: wiki-repo
+
+      - name: Mirror wiki/ onto the wiki
+        run: |
+          if ! ls wiki/*.md >/dev/null 2>&1; then
+            echo "::error::wiki/ contains no .md pages — refusing to wipe the live wiki."
+            exit 1
+          fi
+          find wiki-repo -maxdepth 1 -name '*.md' -delete
+          cp wiki/*.md wiki-repo/
+          cd wiki-repo
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "wiki already matches wiki/ at $GITHUB_REF_NAME — nothing to push"
+          else
+            git commit -m "Sync wiki from $GITHUB_REF_NAME ($GITHUB_SHA)"
+            git push
+          fi

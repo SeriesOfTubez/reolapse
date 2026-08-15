@@ -13,4 +13,6 @@ __pycache__/
 .claude/
 deploy/
 scan-results/
+scripts/
+wiki/
 *.md

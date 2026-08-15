@@ -269,7 +269,10 @@ default to being kept forever — a reference 3-camera deployment grows about
 and a shortage/headroom forecast. Full sizing numbers and the retention math
 are on the
 [Storage & Performance](https://github.com/SeriesOfTubez/reolapse/wiki/Storage-and-Performance#storage-estimates)
-wiki page.
+wiki page. Spot a junk video? A **delete** button next to **download** in the
+player removes it from disk — see
+[Deleting a video by hand](https://github.com/SeriesOfTubez/reolapse/wiki/Storage-and-Performance#deleting-a-video-by-hand)
+for what's regenerable and what isn't.
 
 ## Performance
 
@@ -302,7 +305,11 @@ than trusting a single weather code, since thunderstorm conditions are
 otherwise under-reported — a real deployment logged zero storm tags over 19
 days of repeated storms before this. See the
 [Weather & Storm Detection](https://github.com/SeriesOfTubez/reolapse/wiki/Weather-and-Storm-Detection)
-wiki page for how detection works and how API outages are handled.
+wiki page for how detection works and how API outages are handled. Those
+same burst frames make the daily video crawl through a storm hour by
+default; `daily_video.include_events` controls whether they're woven in or
+left out — see
+[Event frames in the daily video](https://github.com/SeriesOfTubez/reolapse/wiki/Weather-and-Storm-Detection#event-frames-in-the-daily-video).
 
 ## Lunar event detection
 
@@ -392,6 +399,11 @@ judge for yourself rather than take it on faith:
 
 Issues and PRs welcome — especially reports of which Reolink models work. Keep
 changes focused and match the existing style.
+
+Wiki pages live in [`wiki/`](wiki/) in this repo and are published to the
+GitHub wiki automatically when a release tag is pushed — **edit them there in
+a PR, not in the browser**, or your changes will be overwritten by the next
+release.
 
 ## License
 
