@@ -55,6 +55,27 @@ ACCENT_COLORS = {
 
 REQUIRED_SECTIONS = ("capture", "storage", "daily_video", "yearly")
 
+
+def video_path(cfg, camera, vtype, name):
+    """Resolved path to one video, or None if any component is unsafe/unknown.
+
+    Both the browse and delete routes resolve through this so they agree on
+    exactly what a valid video path is: a known type, a config-shaped camera
+    name, a bare .mp4 leaf with no directory part, and a final resolved path
+    still inside videos_dir. The last check is belt-and-braces — the ones
+    above already make traversal impossible — but it means a future caller
+    can't reintroduce it by loosening one of them.
+    """
+    if vtype not in VIDEO_TYPES:
+        return None
+    if not CAMERA_NAME_RE.match(camera or ""):
+        return None
+    if not name.endswith(".mp4") or name != Path(name).name:
+        return None
+    root = videos_dir(cfg).resolve()
+    path = (root / camera / vtype / name).resolve()
+    return path if path.is_relative_to(root) else None
+
 # Keep in sync with capture.py's MIN_INTERVAL_SECONDS — the floor on poll rate.
 MIN_INTERVAL_SECONDS = 10
 
@@ -757,11 +778,37 @@ def create_app(cfg, config_path=None):
 
     @app.get("/videos/<camera>/<vtype>/<name>")
     def serve_video(camera, vtype, name):
-        if vtype not in VIDEO_TYPES or not name.endswith(".mp4"):
+        path = video_path(state["cfg"], camera, vtype, name)
+        if path is None:
             abort(404)
-        # send_from_directory rejects path traversal and handles Range
-        # requests, which the <video> element needs for seeking.
-        return send_from_directory(videos_dir(state["cfg"]) / camera / vtype, name)
+        # send_from_directory handles Range requests, which <video> seeking needs.
+        return send_from_directory(path.parent, path.name)
+
+    @app.delete("/api/videos/<camera>/<vtype>/<name>")
+    @require_config_auth
+    def delete_video(camera, vtype, name):
+        cfg = state["cfg"]
+        path = video_path(cfg, camera, vtype, name)
+        if path is None or not path.is_file():
+            return jsonify({"error": "no such video"}), 404
+        try:
+            path.unlink()
+        except OSError as exc:
+            return jsonify({"error": f"failed to delete {path.name}: {exc}"}), 500
+
+        result = {"ok": True, "deleted": f"{camera}/{vtype}/{name}"}
+        if vtype == "events":
+            # events.jsonl indexes clips by path; a deleted clip must leave the
+            # index in the same request, not 24h later on the next nightly build.
+            try:
+                import build_timelapse
+                result["index_entries_removed"] = build_timelapse.sync_events_index(cfg)
+            except Exception as exc:
+                app.logger.exception("events index sync failed after deleting %s", path.name)
+                result["warning"] = (
+                    f"{path.name} was deleted, but the events index could not be "
+                    f"updated ({exc}). It will self-heal on the next nightly build.")
+        return jsonify(result)
 
     return app
 

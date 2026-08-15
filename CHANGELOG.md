@@ -21,6 +21,18 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   extra to exclude. Editable from the Config page under **Daily video** and
   each camera's **Weather events**. Defaults to off; existing configs and
   existing daily videos are unaffected.
+- **Delete a video straight from the player.** A **delete** button next to
+  **download** removes the selected daily, yearly, or event video from disk —
+  useful for clearing out a junk clip (camera glare, a false storm trigger)
+  the moment you spot it, instead of waiting for retention settings to catch
+  it. New `DELETE /api/videos/<camera>/<vtype>/<name>`, gated by the same
+  optional Config-page passcode as every other write endpoint (`/api/config`,
+  `/api/restart`) — with no passcode set, deletion is open to the LAN, same as
+  those. Deleting an event clip also drops its `events.jsonl` entry
+  immediately rather than waiting for the next nightly build to notice it's
+  gone. `/videos/<camera>/<vtype>/<name>` (the unauthenticated browse route)
+  now validates the camera name too, closing a gap where only `name` and
+  `vtype` were checked. Existing configs are unaffected.
 
 ## [0.3.0] - 2026-08-08
 
