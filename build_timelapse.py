@@ -26,8 +26,9 @@ from pathlib import Path
 
 from common import (build_status_path, camera_events_enabled,
                     camera_include_events_in_daily, camera_interval_seconds,
-                    load_config, local_today, snapshots_dir, tzinfo_for,
-                    videos_dir, yearly_frames_dir)
+                    event_gap_minutes, event_min_frames, load_config,
+                    local_today, snapshots_dir, tzinfo_for, videos_dir,
+                    yearly_frames_dir)
 
 log = logging.getLogger("timelapse")
 
@@ -423,12 +424,20 @@ def sync_events_index(cfg):
     return dropped
 
 
-def tag_spans(cfg, date, tag, gap_minutes=20):
+def tag_spans(cfg, date, tag, gap_minutes=None):
     """Reconstruct when a tag was active on a date from the conditions log.
 
     The log records tag-set *changes*, so state at midnight is seeded from
     the last entry of the previous day's file.
+
+    `gap_minutes` resolves itself (via common.event_gap_minutes) when not
+    given explicitly, so both callers — build_event_videos and (post
+    daily-video-event-frames) frames_outside_spans — agree per tag without
+    either needing to remember to pass it. The explicit parameter stays for
+    one-off overrides and manual testing.
     """
+    if gap_minutes is None:
+        gap_minutes = event_gap_minutes(cfg, tag)
     cond_dir = cfg["storage"]["root"] / "conditions"
 
     def entries(day):
@@ -518,7 +527,7 @@ def build_event_videos(cfg, date, camera=None):
     tags = ev.get("tags") or []
     if not tags:
         return
-    min_frames = ev.get("min_frames", 30)
+    min_frames = event_min_frames(cfg)
     index_path = cfg["storage"]["root"] / "events.jsonl"
 
     # Drop stale index entries for this date before re-adding (rebuild-safe)

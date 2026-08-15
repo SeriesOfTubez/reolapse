@@ -7,6 +7,7 @@ systemd values win). See config.example.yaml and .env.example.
 """
 
 import json
+import math
 import os
 import re
 import time
@@ -175,6 +176,64 @@ def camera_include_events_in_daily(cfg, cam) -> bool:
     if value is None:
         value = (cfg.get("daily_video") or {}).get("include_events")
     return bool(value)
+
+
+DEFAULT_EVENT_MIN_SECONDS = 5
+DEFAULT_EVENT_GAP_MINUTES = 20
+
+
+def event_min_frames(cfg) -> int:
+    """Minimum frames an event span needs before a clip is rendered, resolved
+    from events_video.min_seconds x events_video.fps. min_frames is the
+    pre-0.4 key and still wins if min_seconds is absent, so an existing
+    config.yaml keeps behaving exactly as it did.
+    """
+    ev = cfg.get("events_video") or {}
+    fps = ev.get("fps", 30)
+    try:
+        fps = float(fps)
+    except (TypeError, ValueError):
+        fps = 30.0
+    fps = max(1.0, fps)
+
+    min_seconds = ev.get("min_seconds")
+    if min_seconds is not None:
+        try:
+            frames = math.ceil(float(min_seconds) * fps)
+        except (TypeError, ValueError):
+            frames = math.ceil(DEFAULT_EVENT_MIN_SECONDS * fps)
+        return max(1, frames)
+
+    min_frames = ev.get("min_frames")
+    if min_frames is not None:
+        try:
+            return max(1, int(min_frames))
+        except (TypeError, ValueError):
+            pass
+
+    return max(1, math.ceil(DEFAULT_EVENT_MIN_SECONDS * fps))
+
+
+def event_gap_minutes(cfg, tag) -> float:
+    """Minutes of quiet that still count as one event for `tag`.
+
+    Both the event-clip builder and the daily-video exclusion filter
+    reconstruct spans through tag_spans, so they must agree per tag or a
+    frame can be excluded from the daily video without a clip existing (or
+    vice versa). Resolving here, once, is what makes that structural.
+    """
+    ev = cfg.get("events_video") or {}
+    by_tag = ev.get("gap_minutes_by_tag") or {}
+
+    value = by_tag.get(tag) if isinstance(by_tag, dict) else None
+    if value is None:
+        value = ev.get("gap_minutes")
+
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return float(DEFAULT_EVENT_GAP_MINUTES)
+    return max(0.0, value)
 
 
 def build_status_path(cfg) -> Path:
