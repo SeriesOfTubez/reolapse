@@ -7,6 +7,19 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Config page: App Settings / Cameras tabs.** The Config page was one long
+  scroll through nine sections regardless of what you came to change. It's
+  now split into two tabs: **Cameras** (the camera list/picker, each
+  camera's full settings card, and network discovery) and **App Settings**
+  (everything global — Capture, Storage, Daily video, Yearly video, Weather &
+  astronomy tagging, Event video clips, Web UI, and Config page access).
+  Switching tabs never touches the network or discards an unsaved edit — both
+  tabs read and write the same in-memory config, and **Save config** in the
+  shared footer still saves everything regardless of which tab is showing.
+  The Cameras tab reuses the camera picker introduced for the navbar above,
+  selecting by list position rather than name (camera names are editable and
+  can transiently collide, e.g. right after "+ Add camera manually", which
+  starts every new camera out named the same thing).
 - **Navbar rework: a camera picker plus a Daily/Yearly/Events dropdown.**
   Replaces the old row of one pill button per camera (which stopped scaling
   past a handful of cameras) with a single `<select>`, shared by the navbar
