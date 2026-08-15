@@ -7,6 +7,20 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Optional event-burst frames in the daily video.** While a storm/snow burst
+  is active, capture drops to `events.burst_interval_seconds`, so those
+  minutes land in the same day folder far denser than the rest of the day and
+  the daily video crawls through them. New `daily_video.include_events`
+  (default `false`) leaves frames inside an active burst span out of the
+  daily `.mp4` only — the event clip, the yearly frame archive, and the
+  frames on disk are all untouched, and a day that was event-tagged end to
+  end skips the daily video rather than rendering an empty one (the yearly
+  archive still gets that day's frames). Any camera can override the global
+  setting with `include_events_in_daily`. Skipped entirely for
+  `events_enabled: false` cameras, since they never burst and have nothing
+  extra to exclude. Editable from the Config page under **Daily video** and
+  each camera's **Weather events**. Defaults to off; existing configs and
+  existing daily videos are unaffected.
 - **Delete a video straight from the player.** A **delete** button next to
   **download** removes the selected daily, yearly, or event video from disk —
   useful for clearing out a junk clip (camera glare, a false storm trigger)

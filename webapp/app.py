@@ -212,6 +212,9 @@ def validate_config(cfg):
             cam_events = cam.get("events_enabled")
             if cam_events is not None and not isinstance(cam_events, bool):
                 problems.append(f"cameras[{i}].events_enabled must be true or false")
+            cam_incl = cam.get("include_events_in_daily")
+            if cam_incl is not None and not isinstance(cam_incl, bool):
+                problems.append(f"cameras[{i}].include_events_in_daily must be true or false")
 
     for section in REQUIRED_SECTIONS:
         if not isinstance(cfg.get(section), dict):
@@ -220,6 +223,10 @@ def validate_config(cfg):
     accent = (cfg.get("webapp") or {}).get("accent_color")
     if accent and accent not in ACCENT_COLORS:
         problems.append(f"webapp.accent_color {accent!r} must be one of {sorted(ACCENT_COLORS)}")
+
+    include_events = (cfg.get("daily_video") or {}).get("include_events")
+    if include_events is not None and not isinstance(include_events, bool):
+        problems.append("daily_video.include_events must be true or false")
 
     pw_hash = (cfg.get("webapp") or {}).get("config_passcode_hash")
     if pw_hash is not None and not isinstance(pw_hash, str):

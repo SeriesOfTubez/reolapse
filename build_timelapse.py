@@ -24,9 +24,10 @@ import tempfile
 import time
 from pathlib import Path
 
-from common import (build_status_path, camera_events_enabled, load_config,
-                    local_today, snapshots_dir, tzinfo_for, videos_dir,
-                    yearly_frames_dir)
+from common import (build_status_path, camera_events_enabled,
+                    camera_include_events_in_daily, camera_interval_seconds,
+                    load_config, local_today, snapshots_dir, tzinfo_for,
+                    videos_dir, yearly_frames_dir)
 
 log = logging.getLogger("timelapse")
 
@@ -252,16 +253,31 @@ def cmd_daily(cfg, args):
             if len(frames) < MIN_FRAMES:
                 log.warning("%s: only %d frame(s) for %s, skipping", cam["name"], len(frames), date)
                 continue
-            d = cfg["daily_video"]
-            out = videos_dir(cfg) / cam["name"] / "daily" / f"{date.isoformat()}.mp4"
-            build_video(
-                frames, out,
-                fps=d["fps"], crf=d["crf"],
-                deflicker_size=d.get("deflicker_size", 0),
-                max_height=d.get("max_height", 0),
-                preset=d.get("preset", "medium"),
-                metadata=season,
-            )
+            tags = daily_exclusion_tags(cfg, cam)
+            daily_frames = frames_outside_spans(cfg, date, frames, tags) if tags else frames
+            dropped = len(frames) - len(daily_frames)
+            if dropped:
+                log.info("%s: excluded %d event-burst frame(s) from the daily video for %s "
+                         "(daily_video.include_events is off); the yearly archive keeps them",
+                         cam["name"], dropped, date)
+            if len(daily_frames) < MIN_FRAMES:
+                # A day that was event-tagged end to end. Skip the daily video,
+                # but still archive — those yearly frames are irreplaceable and
+                # the day genuinely has plenty of them.
+                log.warning("%s: only %d non-event frame(s) for %s, skipping the daily "
+                            "video (yearly frames still archived)",
+                            cam["name"], len(daily_frames), date)
+            else:
+                d = cfg["daily_video"]
+                out = videos_dir(cfg) / cam["name"] / "daily" / f"{date.isoformat()}.mp4"
+                build_video(
+                    daily_frames, out,
+                    fps=d["fps"], crf=d["crf"],
+                    deflicker_size=d.get("deflicker_size", 0),
+                    max_height=d.get("max_height", 0),
+                    preset=d.get("preset", "medium"),
+                    metadata=season,
+                )
             archive_yearly_frames(cfg, cam["name"], date, frames)
 
         try:
@@ -449,6 +465,48 @@ def tag_spans(cfg, date, tag, gap_minutes=20):
         else:
             merged.append((start, end))
     return merged
+
+
+def daily_exclusion_tags(cfg, cam):
+    """Tags whose active spans represent *extra* frames for this camera, and
+    should therefore be left out of its daily video.
+
+    Empty (= exclude nothing) in three cases, each for a different reason:
+      * the camera is set to include event frames — nothing to exclude;
+      * the camera has events_enabled: false — it never bursts, so its frames
+        during a site-wide storm are ordinary cadence frames and dropping them
+        would gouge a hole in an unaffected camera's day;
+      * the burst interval isn't actually faster than this camera's own
+        interval — a misconfiguration, but one where no extra frames exist to
+        remove and exclusion would silently delete a chunk of a normal day.
+
+    Note this is events.burst_tags, NOT events_video.tags: burst_tags is what
+    capture.py speeds up for, so it's exactly the set that produces extra
+    frames. events_video.tags is an independent list of what gets its own clip
+    and legitimately includes non-burst tags like moon phases.
+    """
+    if camera_include_events_in_daily(cfg, cam) or not camera_events_enabled(cfg, cam):
+        return []
+    ecfg = cfg.get("events") or {}
+    burst = ecfg.get("burst_interval_seconds")
+    if burst is None or burst >= camera_interval_seconds(cfg, cam):
+        return []
+    return list(ecfg.get("burst_tags") or [])
+
+
+def frames_outside_spans(cfg, date, frames, tags):
+    """`frames` minus any whose HHMMSS stem falls inside an active span of
+    `tags` on `date`. Same span reconstruction (and 20-minute gap merge) the
+    event clips use, so a frame is excluded from the daily video exactly when
+    it's inside the span that produced an event clip."""
+    windows = []
+    for tag in tags:
+        for start, end in tag_spans(cfg, date, tag):
+            windows.append((start.strftime("%H%M%S"), end.strftime("%H%M%S")))
+    if not windows:
+        return list(frames)
+    return [f for f in frames
+            if not any(lo <= f.stem <= hi for lo, hi in windows)]
 
 
 def build_event_videos(cfg, date, camera=None):
