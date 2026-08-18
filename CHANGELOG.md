@@ -6,6 +6,8 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-08-18
+
 ### Fixed
 - **Tall videos no longer push the player controls off-screen.** The player
   already had a `max-height` meant to keep a video inside the window, but it
@@ -298,7 +300,9 @@ Initial public release.
 - Running version reported in the web UI header, the API, service logs, and the
   Docker image.
 
-[Unreleased]: https://github.com/SeriesOfTubez/reolapse/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/SeriesOfTubez/reolapse/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/SeriesOfTubez/reolapse/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/SeriesOfTubez/reolapse/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/SeriesOfTubez/reolapse/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/SeriesOfTubez/reolapse/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/SeriesOfTubez/reolapse/releases/tag/v0.1.0
