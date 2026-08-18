@@ -6,6 +6,15 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **The Restart services button now actually reloads the page.** It told you
+  the page would "disconnect for a few seconds, then reload" — and then never
+  reloaded, leaving you on a stale page with no sign the restart had finished.
+  The reload was only ever promised, never implemented. It now waits for the
+  web service to start answering again and reloads by itself. If the service
+  doesn't come back within 45 seconds it says so and points you at
+  `systemctl status reolapse-web`, instead of waiting forever.
+
 ## [0.4.0] - 2026-08-15
 
 ### Added
