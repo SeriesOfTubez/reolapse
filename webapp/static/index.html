@@ -1685,6 +1685,42 @@ function tagCheckGroup(path, allTags) {
 // GET /api/config and would silently discard unsaved edits.
 const CONFIG_TABS = [["app", "App Settings"], ["cameras", "Cameras"]];
 
+// Restart-reconnect timings. The web service defers its own restart by ~1.5s
+// (schedule_self_restart) so the HTTP response can reach us first, and systemd
+// takes a moment more. Probing before that window closes would get an answer
+// from the old process that is about to die, and reload us into a page that is
+// immediately cut off - so wait it out before the first probe.
+const RESTART_GRACE_MS = 2500;
+const RESTART_POLL_MS = 1000;
+const RESTART_PROBE_TIMEOUT_MS = 2000;
+const RESTART_GIVE_UP_MS = 45000;
+
+function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+// Polls until the web service is serving again. /api/auth is the probe because
+// it is deliberately unauthenticated and cheap - any answer at all means Flask
+// is back. Returns false if it never comes back, so the caller can tell the
+// user rather than spinning forever.
+async function waitForServerBack() {
+  await sleep(RESTART_GRACE_MS);
+  const deadline = Date.now() + RESTART_GIVE_UP_MS;
+  while (Date.now() < deadline) {
+    const ctl = new AbortController();
+    const probeTimer = setTimeout(() => ctl.abort(), RESTART_PROBE_TIMEOUT_MS);
+    try {
+      // no-store so a cached 200 can't be mistaken for the service being up.
+      const res = await fetch("/api/auth", {cache: "no-store", signal: ctl.signal});
+      if (res.ok) return true;
+    } catch (e) {
+      // Connection refused/aborted while the service is down - keep waiting.
+    } finally {
+      clearTimeout(probeTimer);
+    }
+    await sleep(RESTART_POLL_MS);
+  }
+  return false;
+}
+
 function renderConfigForm(area) {
   const wrap = document.createElement("div");
   wrap.id = "cfg-view";
@@ -1762,22 +1798,36 @@ function renderConfigForm(area) {
     restartBtn.textContent = "Restarting…";
     msg.className = "cfg-msg";
     msg.textContent = "";
+    let note = "Services restarting…";
     try {
       const res = await fetch("/api/restart", {method: "POST"});
       const data = await res.json();
       if (data.error) {
+        // Nothing was restarted (the capture restart failed before the web
+        // service scheduled its own), so there is nothing to wait for.
         msg.className = "cfg-msg error";
         msg.textContent = data.error;
-      } else {
-        msg.className = "cfg-msg ok";
-        msg.textContent = data.note || "Restarting…";
+        restartBtn.disabled = false;
+        restartBtn.textContent = "Restart services";
+        return;
       }
+      note = data.note || note;
     } catch (e) {
       // The web service restarting itself can drop this very connection -
       // that's the expected outcome here, not a failure.
-      msg.className = "cfg-msg ok";
-      msg.textContent = "Services restarting — reload the page in a few seconds.";
     }
+    // A restart really is in flight now. The note above promises the page will
+    // come back by itself, so actually deliver that rather than leaving the
+    // user on a stale page: wait for the service to answer, then reload.
+    msg.className = "cfg-msg ok";
+    msg.textContent = note + " Reconnecting…";
+    if (await waitForServerBack()) {
+      location.reload();
+      return;
+    }
+    msg.className = "cfg-msg error";
+    msg.textContent = "The web service hasn't come back. Check it with "
+      + "`systemctl status reolapse-web` on the host, then refresh this page.";
     restartBtn.disabled = false;
     restartBtn.textContent = "Restart services";
   };
