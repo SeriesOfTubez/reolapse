@@ -40,6 +40,10 @@
     --space-4: 16px;
     --space-5: 20px;
     --space-6: 24px;
+
+    /* Vertical room #controls needs under the video in the player. */
+    --player-chrome: 60px;
+
     /* Radii */
     --radius-sm: 6px;
     --radius-md: 8px;
@@ -242,18 +246,39 @@
     /* flex-start, not center: with overflow-y:auto, justify-content:center
        pushes overflowing content's start edge out of scroll range - tall
        views (Config, Storage) would have their top clipped and unreachable
-       by scrolling. Content shorter than the viewport (the video player) is
-       centered instead via margin:auto on .video-wrap below, which doesn't
-       have that bug. */
+       by scrolling. The video player centers itself instead, via
+       'justify-content: safe center' on .video-wrap below, which degrades
+       to flex-start on overflow and so doesn't have that bug. */
     justify-content: flex-start;
     padding: var(--space-5);
     overflow-y: auto;
   }
-  .video-wrap { margin: auto 0; display: flex; flex-direction: column; align-items: center; }
+  /* flex:1 + min-height:0 (rather than height:100%) gives .video-wrap a
+     definite height derived from #player-area. That is the whole point: a
+     percentage max-height on the video below only binds if its containing
+     block's height is definite. With the old content-sized .video-wrap the
+     percentage resolved to 'none', so a video taller than the window
+     overflowed and pushed #controls off-screen.
+
+     'safe center' centres the player but degrades to flex-start if the
+     contents ever do overflow (e.g. #controls wrapping on a narrow window),
+     avoiding the top-clipping described in the #player-area comment above. */
+  .video-wrap {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: safe center;
+  }
   #empty { margin: auto; }
   video {
+    /* No width/height: a replaced element sizes to its intrinsic dimensions,
+       so a 1080p clip renders at 1080p and is never upscaled. The two max-*
+       constraints shrink it proportionally when it doesn't fit; --player-chrome
+       reserves room for #controls underneath. */
     max-width: 100%;
-    max-height: calc(100% - 60px);
+    max-height: calc(100% - var(--player-chrome));
     border-radius: var(--radius-lg);
     background: #000;
   }
