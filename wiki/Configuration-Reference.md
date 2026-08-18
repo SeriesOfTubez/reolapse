@@ -76,7 +76,10 @@ dropdown, radio, or text field.
   [Installation](Installation#install-on-a-linux-vm-systemd)). Without the rule
   the button just fails with a clear error instead of hanging. Docker
   deployments don't have `systemctl` at all — the button detects this and
-  tells you to run `docker compose restart` instead.
+  tells you to run `docker compose restart` instead. The page waits for the
+  web service to start answering again and then reloads itself, so there's
+  nothing to refresh by hand; if it hasn't come back within 45 seconds the
+  page says so and points you at `systemctl status reolapse-web`.
 - **Comments are not preserved.** This editor round-trips the YAML as data,
   not text, so saving from the UI strips out `config.yaml`'s hand-written
   comments. A backup of the previous file is written to `config.yaml.bak`
