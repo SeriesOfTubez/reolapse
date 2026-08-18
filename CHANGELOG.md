@@ -7,6 +7,17 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **Tall videos no longer push the player controls off-screen.** The player
+  already had a `max-height` meant to keep a video inside the window, but it
+  never took effect: it was a percentage of a container that was itself
+  content-sized, so the browser resolved it to "no limit". Any timelapse
+  taller than the viewport — easy to hit on a high-resolution monitor —
+  rendered at full size and shoved the speed/download/delete row below the
+  fold. The player now derives a real height from the area around it, so the
+  constraint actually applies: an oversized video shrinks to fit the window,
+  keeping its aspect ratio, with the controls always visible. Videos that
+  already fit are still shown at their native resolution and are never
+  upscaled.
 - **The Restart services button now actually reloads the page.** It told you
   the page would "disconnect for a few seconds, then reload" — and then never
   reloaded, leaving you on a stale page with no sign the restart had finished.
