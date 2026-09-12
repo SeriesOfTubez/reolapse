@@ -24,9 +24,10 @@ import urllib3
 
 import events
 from common import (APP_ROOT, APP_VERSION, camera_daylight_config,
-                    camera_events_enabled, camera_interval_seconds, load_config,
-                    local_now, local_today, probe_frame_count, snapshots_dir,
-                    tzinfo_for, videos_dir)
+                    camera_events_enabled, camera_interval_seconds,
+                    classify_capture_failure, load_config, local_now,
+                    local_today, probe_frame_count, record_capture_miss,
+                    snapshots_dir, tzinfo_for, videos_dir)
 
 # A "night" spans midnight, so night frames are bucketed by a noon-to-noon
 # logical day (shift the timestamp back 12h). That makes one evening + the
@@ -429,6 +430,12 @@ def run_once(cfg, conditions=None, windows=None, tz=None, due=None):
                     time.sleep(2)
                 else:
                     log.error("%s: snapshot failed: %s", cam["name"], msg)
+                    # Durable, unlike the log line: the journal is exactly what
+                    # stops being reliable during an incident, and a camera that
+                    # loses power should still show up in availability after.
+                    record_capture_miss(cfg, cam["name"],
+                                        classify_capture_failure(exc),
+                                        detail=msg, when=now)
 
 
 def trigger_night_build(config_path, date, camera=None):

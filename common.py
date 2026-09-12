@@ -240,6 +240,86 @@ def event_gap_minutes(cfg, tag) -> float:
     return max(0.0, value)
 
 
+def capture_misses_path(cfg) -> Path:
+    return cfg["storage"]["root"] / "capture_misses.jsonl"
+
+
+def classify_capture_failure(exc) -> str:
+    """Coarse reason for a failed snapshot, for availability reporting.
+
+    Worth separating because they mean very different things: a camera that
+    lost power and a disk that filled up both produce a missing frame, and
+    treating them alike turns "the disk is full" into "all three cameras went
+    offline at once" -- which sends you looking in entirely the wrong place.
+    """
+    mro = {c.__name__ for c in type(exc).__mro__}
+    module = type(exc).__module__ or ""
+    if "Timeout" in mro:
+        return "timeout"
+    if "ConnectionError" in mro or "NewConnectionError" in mro:
+        return "unreachable"
+    if "HTTPError" in mro:
+        return "http_error"
+    if isinstance(exc, RuntimeError):
+        return "bad_response"   # HTTP 200 carrying a JSON error, not a JPEG
+    # Order matters below this line: requests' exceptions subclass OSError, so
+    # anything from the HTTP stack has to be claimed above or it lands in
+    # write_failed and reads as a disk problem.
+    if module.split(".")[0] in ("requests", "urllib3", "http", "socket", "ssl"):
+        return "unreachable"
+    if isinstance(exc, OSError):
+        return "write_failed"   # genuine local I/O, e.g. ENOSPC on the frame
+    return "error"
+
+
+def record_capture_miss(cfg, camera, reason, detail=None, when=None):
+    """Append one missed capture to a rolling JSONL.
+
+    A failed snapshot was previously only log.error'd, so a camera that lost
+    power left no durable trace -- and the journal is exactly what stops being
+    reliable during an incident. Best-effort: recording a miss must never be
+    able to turn into a second failure.
+    """
+    try:
+        path = capture_misses_path(cfg)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        entry = {"ts": (when or datetime.now()).strftime("%Y-%m-%d %H:%M:%S"),
+                 "camera": camera, "reason": reason}
+        if detail:
+            entry["detail"] = str(detail)[:300]
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except OSError:
+        pass
+
+
+def read_capture_misses(cfg, on_date=None):
+    """Recorded misses, optionally limited to one local date. Unparseable lines
+    are skipped -- an interrupted append must not cost the whole file."""
+    path = capture_misses_path(cfg)
+    if not path.exists():
+        return []
+    out = []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    prefix = on_date.isoformat() if on_date else None
+    for line in lines:
+        if not line.strip():
+            continue
+        if prefix and prefix not in line:
+            continue          # cheap pre-filter before paying for json
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if prefix and not str(entry.get("ts", "")).startswith(prefix):
+            continue
+        out.append(entry)
+    return out
+
+
 def probe_frame_count(path):
     """Frames actually present in an encoded video, or None if ffprobe is
     missing or the container doesn't report a count. Reads the container index
