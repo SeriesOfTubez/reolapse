@@ -23,8 +23,8 @@
 - **Optional Config-page passcode.** You can put a single passcode (no
   username) in front of the Config page and its write/scan endpoints
   (`/api/config`, `/api/discover`, `/api/discover/identify`, `/api/restart`,
-  `DELETE /api/videos/...`) while video browsing stays open for casual LAN
-  viewing. It's **opt-in**:
+  `POST /api/build`, `DELETE /api/videos/...`) while video browsing stays open
+  for casual LAN viewing. It's **opt-in**:
   set it from the Config page itself under **Config page access** (or remove
   it there later). Details:
   - The passcode is stored only as a **salted scrypt hash** in `config.yaml`
@@ -43,6 +43,12 @@
   on the LAN can delete a video from the player — but that's the same
   exposure as being able to rewrite `config.yaml` and restart services,
   which they already have on an open install.
+- **Starting a build is gated the same way**, and is worth gating for a
+  different reason than the others: an encode will saturate the host's CPU for
+  the better part of an hour and write hundreds of MB. On an open install
+  anyone on the LAN can trigger that. Only one build runs at a time, so it
+  cannot be stacked up, but a passcode is the right answer if that matters to
+  you.
 - Credentials live in `.env` (gitignored), never in `config.yaml`.
 - Prefer a **dedicated, least-privilege** camera/NVR account for ReoLapse. The
   Snap API passes credentials as URL parameters, so avoid `&`, `#`, `%` in that

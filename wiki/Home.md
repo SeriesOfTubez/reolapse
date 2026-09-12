@@ -10,5 +10,6 @@ Deep-reference docs for ReoLapse. Start with the [README](https://github.com/Ser
 - **[Lunar & Season Tagging](Lunar-and-Season-Tagging)** — moon events and astronomical season tags
 - **[Forecast Tab](Forecast-Tab)** — the 10-day storm/snow/moon forecast
 - **[PTZ & Night Capture](PTZ-and-Night-Capture)** — PTZ quarantine, IR/night handling, per-camera schedules
-- **[Storage & Performance](Storage-and-Performance)** — disk sizing, retention math, build times, deleting videos
+- **[Camera Availability & On-Demand Builds](Camera-Availability)** — the Cameras tab: capture coverage, outage gaps and reasons, and building or rebuilding a day
+- **[Storage & Performance](Storage-and-Performance)** — disk sizing, memory sizing, retention math, build times, deleting videos
 - **[Security](Security)** — the auth model, the Config-page passcode, and what's *not* protected

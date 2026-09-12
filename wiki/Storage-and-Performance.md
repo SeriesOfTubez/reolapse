@@ -29,6 +29,12 @@ What accumulates and what doesn't, and how to bound each:
 
 - **Raw snapshots** are a *rolling window* — pruned `storage.keep_snapshots_days`
   after each day's video builds, so this cost is already bounded by default.
+  Pruning checks that the video is actually *usable* first, not merely that the
+  file exists: a day's frames are irreplaceable, and a truncated or unreadable
+  video is no proof the day was built successfully. A day sitting behind a bad
+  video keeps its frames and logs a warning instead — rebuild it (see
+  [Camera Availability](Camera-Availability)) and the space is reclaimed on the
+  next pass.
 - **Daily videos, yearly videos, and event clips default to forever** (`0` in
   `daily_video.retention_days`, `yearly.retention_years`,
   `events_video.retention_days`) but each is independently configurable. In
@@ -61,6 +67,32 @@ free disk space:
 This recalculates after every nightly build, so it tracks reality as your
 retention settings, camera count, or event frequency change — no manual math
 required.
+
+### Low-space warnings, and keeping the figures honest
+
+A banner appears when free space drops below **10%**, below **5%**, or is
+effectively gone, and also when the **runway forecast falls under a week**. It
+can be dismissed, and returns if the situation gets worse.
+
+The thresholds are on free space and runway rather than the used percentage
+alone, because that percentage on its own is a poor alarm. The reference
+deployment broke at a reported **98% full** — which was 2.0 GB free against
+~1.2 GB/day of growth, about 1.4 days of runway, and read as perfectly calm
+right up until writes started failing.
+
+One thing to know about where these numbers come from: `storage_stats.json` is
+written at the **end of a successful daily build**. A stretch of failed builds
+therefore leaves the Storage tab quoting figures that are days old — exactly
+when accurate free space matters most. The banner says so when its own figures
+are stale, and the Storage tab has a **Refresh now** button that recomputes
+them on demand. Worth pressing after a disk fills up, gets expanded, or a build
+fails.
+
+Note also that the percentage is computed the way `df` reports `Use%` —
+`used / (used + free)`. Where a filesystem sets a root reserve (ext4 defaults to
+5%, though cloud images often ship with none) those blocks belong to neither
+figure, so `used / total` would read ~95% on a filesystem an unprivileged
+writer could no longer write to at all.
 
 ### Deleting a video by hand
 

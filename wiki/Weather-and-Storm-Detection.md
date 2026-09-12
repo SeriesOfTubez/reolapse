@@ -109,7 +109,20 @@ Both the storm and snow thresholds are exposed on the Config page as
 Conservative / Balanced / Aggressive presets — dragging one writes concrete
 numbers into the same config keys described here (no separate "preset"
 setting is stored), and a hand-edited value that doesn't exactly match a
-tier shows as "Custom."
+tier shows as "Custom." Each tier carries a one-line note in the UI describing
+what it trades away, since the name and the raw numbers alone don't convey it:
+
+| Tier | Storm | Snow |
+|---|---|---|
+| Conservative | only severe storms; few false alarms, but pop-up storms will be missed | only real accumulation; flurries ignored |
+| Balanced | catches most real storms without tagging ordinary rain | any measurable snowfall in the reporting interval |
+| Aggressive | catches weak and pop-up storms; expect some heavy showers tagged as storms | any snow at all, including a reported trace |
+
+Worth remembering when a storm you clearly remember doesn't appear in the
+Events tab: at **Balanced**, a thunderstorm that never reaches CAPE 800 J/kg or
+60 km/h gusts, with no NWS alert and the station reporting plain rain, is tagged
+`rain` — and `rain` is in neither `events.burst_tags` nor `events_video.tags` by
+default, so it produces no burst and no clip.
 
 ## Surviving API outages
 
@@ -118,3 +131,27 @@ poll tells you nothing about the weather, so ReoLapse holds a source's last
 known tags for `events.stale_grace_minutes` (default: three polls) instead of
 reading the outage as *all clear*. Without this, one timed-out request in the
 middle of a storm ends the burst early and truncates the event clip.
+
+## The conditions log is the only record
+
+Event clips are reconstructed from `data/conditions/<date>.jsonl` — not from
+the tags embedded in the frames. If a day has no entry for a tag, no clip can
+be built for it afterwards, even though the frames themselves are tagged
+correctly. That makes the log worth protecting:
+
+- A tag change is only marked as recorded **after** its line is written. It
+  used to be marked first, so a failed write — a full disk — lost the change
+  permanently: the next poll saw nothing new and never retried, and a storm
+  could begin and end with nothing logged.
+- A **failure while updating conditions can no longer take capture down**.
+  Previously an out-of-space error while writing this log propagated out of the
+  capture loop and killed the process; systemd restarted it, it re-detected the
+  same change, and crashed again. Frames are worth more than tags, so the whole
+  conditions refresh is now contained.
+- A **half-written line is skipped** rather than raising. One truncated line —
+  exactly what an interrupted append leaves behind — used to take out event
+  building for that entire date.
+
+If a day's log is missing or truncated anyway, its frames are still tagged and
+still appear in the daily video; only the separate event *clip* is
+unrecoverable.
