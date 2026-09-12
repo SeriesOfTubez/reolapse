@@ -7,6 +7,7 @@
 import argparse
 import concurrent.futures
 import functools
+import datetime as dt
 import hashlib
 import hmac
 import json
@@ -28,8 +29,8 @@ import yaml
 from flask import Flask, abort, jsonify, request, send_from_directory
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from common import (APP_VERSION, DEFAULT_CONFIG, load_config,  # noqa: E402
-                    read_build_status, tzinfo_for, videos_dir)
+from common import (APP_ROOT, APP_VERSION, DEFAULT_CONFIG, load_config,  # noqa: E402
+                    local_today, read_build_status, tzinfo_for, videos_dir)
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -683,6 +684,87 @@ def create_app(cfg, config_path=None):
             log.exception("manual storage stats refresh failed")
             return jsonify({"error": f"could not refresh storage stats: {exc}"}), 500
         return storage()
+
+    def resolved_tz():
+        """The same timezone resolution capture and the builds use, so a date
+        here means the same local day it does everywhere else. cfg has no
+        top-level 'timezone' key -- it is capture.timezone, with auto-detect
+        as the fallback."""
+        import events
+        return tzinfo_for(events.resolve_timezone(state["cfg"]))
+
+    @app.get("/api/availability")
+    def availability_report():
+        """Per-camera capture availability for the last N days.
+
+        Reconstructed from the frames on disk rather than a running counter, so
+        it covers history from before any of this existed -- including the days
+        a full disk ate.
+        """
+        try:
+            days = max(1, min(60, int(request.args.get("days", 14))))
+        except (TypeError, ValueError):
+            days = 14
+        cfg = state["cfg"]
+        try:
+            import availability
+            return jsonify(availability.report(cfg, days=days, tz=resolved_tz()))
+        except Exception as exc:
+            log.exception("availability report failed")
+            return jsonify({"error": str(exc), "days": []}), 500
+
+    @app.post("/api/build")
+    @require_config_auth
+    def start_build():
+        """Start a daily build for one date, detached.
+
+        Deliberately not routed through reolapse-daily.service: that unit runs
+        a bare `daily` with no --date, which is exactly the case that cannot
+        rebuild a past day. This process already runs as the same user out of
+        the same venv, so it can spawn the build directly -- no sudo grant, and
+        nothing added to the sudoers file.
+
+        Detached because a build outlives its request by an order of magnitude;
+        progress is reported through build_status.json like any other build.
+        """
+        payload = request.get_json(silent=True) or {}
+        raw_date = str(payload.get("date") or "").strip()
+        camera = (str(payload.get("camera") or "")).strip() or None
+        cfg = state["cfg"]
+
+        try:
+            date = dt.date.fromisoformat(raw_date)
+        except ValueError:
+            return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+        if date > local_today(resolved_tz()):
+            return jsonify({"error": "that date is in the future"}), 400
+        names = [c["name"] for c in cfg.get("cameras") or []]
+        if camera and camera not in names:
+            return jsonify({"error": f"unknown camera: {camera}"}), 400
+
+        # One build at a time: two concurrent encodes on a small host is how
+        # you turn a slow build into a swapping one, and they would fight over
+        # the same output paths.
+        status = read_build_status(cfg)
+        if status.get("state") == "running":
+            return jsonify({"error": "a build is already running",
+                            "status": status}), 409
+
+        cmd = [sys.executable, str(APP_ROOT / "build_timelapse.py"),
+               "daily", "--date", date.isoformat()]
+        if camera:
+            cmd += ["--camera", camera]
+        if state["path"]:
+            cmd += ["--config", str(state["path"])]
+        try:
+            subprocess.Popen(cmd, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             start_new_session=True)
+        except Exception as exc:
+            log.exception("failed to launch build for %s", date)
+            return jsonify({"error": f"could not start the build: {exc}"}), 500
+        log.info("manual build started for %s (%s)", date, camera or "all cameras")
+        return jsonify({"started": True, "date": date.isoformat(), "camera": camera})
 
     @app.get("/api/config")
     @require_config_auth

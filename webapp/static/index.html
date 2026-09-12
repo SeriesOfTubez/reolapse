@@ -318,6 +318,12 @@
     cursor: pointer;
   }
   button.del:hover { color: #e5534b; }
+  button.rebuild {
+    background: none; border: 0; padding: 0;
+    color: var(--text-2); font: inherit; font-size: var(--fs-sm);
+    cursor: pointer;
+  }
+  button.rebuild:hover { color: var(--accent); }
 
   #empty { color: var(--text-2); text-align: center; padding: var(--space-6); line-height: 1.6; }
   #empty code {
@@ -358,6 +364,39 @@
   .storage-refresh:disabled { opacity: 0.6; cursor: default; }
 
   #storage-view { width: 100%; max-width: 760px; }
+
+  #cameras-view { width: 100%; max-width: 860px; }
+  .build-box {
+    margin: var(--space-4) 0; padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--border); border-radius: var(--radius-md);
+    background: var(--surface-1);
+  }
+  .build-row { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+  .build-row input, .build-row select {
+    font-family: inherit; font-size: var(--fs-sm); padding: 4px 6px;
+    color: var(--text-1); background: var(--surface-2);
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+  }
+  .avail-day {
+    margin-bottom: var(--space-3); padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--border); border-radius: var(--radius-md);
+    background: var(--surface-1);
+  }
+  .avail-head { display: flex; align-items: baseline; gap: var(--space-3); margin-bottom: var(--space-2); }
+  .avail-date { font-weight: var(--fw-semibold); }
+  .avail-row { margin-bottom: var(--space-2); }
+  .avail-line { display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-sm); }
+  .avail-name { min-width: 108px; }
+  .avail-bar { flex: 1; height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+  .avail-fill { height: 100%; background: #4caf7d; }
+  .avail-fill.warn { background: #d9961f; }
+  .avail-fill.bad { background: #e5534b; }
+  .avail-pct { min-width: 52px; text-align: right; font-variant-numeric: tabular-nums; }
+  .avail-detail { font-size: var(--fs-xs); color: var(--text-2); margin: 2px 0 0 116px; }
+  .avail-approx { color: var(--text-3); font-style: italic; }
+  /* 24 cells, midnight to midnight: shows WHEN the gaps fell, not just how many. */
+  .avail-hours { display: flex; gap: 1px; margin: 4px 0 0 116px; }
+  .avail-hour { flex: 1; height: 10px; border-radius: 1px; background: var(--surface-2); }
   .forecast-banner {
     margin: var(--space-4) 0;
     padding: var(--space-3) var(--space-4);
@@ -697,6 +736,7 @@
   <div class="pills" id="types">
     <button class="pill" data-type="forecast">Forecast</button>
     <button class="pill" data-type="storage">Storage</button>
+    <button class="pill" data-type="cameras">Cameras</button>
     <button class="pill" data-type="config">Config</button>
   </div>
   <div class="build-indicator" id="build-indicator" hidden></div>
@@ -853,6 +893,7 @@ function refresh() {
     document.getElementById("cfg-footer").classList.remove("visible");
   }
   if (state.type === "storage") renderStorage();
+  else if (state.type === "cameras") renderAvailability();
   else if (state.type === "forecast") renderForecast();
   else if (state.type === "config") renderConfig();
   else renderList();
@@ -1015,7 +1056,7 @@ function checkForUpdate() {
 }
 
 const VIDEO_VIEWS = ["daily", "yearly", "events"];
-const TOP_LEVEL_VIEWS = ["forecast", "storage", "config"];
+const TOP_LEVEL_VIEWS = ["forecast", "storage", "cameras", "config"];
 
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -1107,6 +1148,7 @@ function play(v, itemEl) {
         ${[0.5, 1, 2, 4].map(s =>
           `<button class="speed${s === 1 ? " active" : ""}" data-speed="${s}">${s}&times;</button>`).join("")}
         <a class="dl" href="${v.url}" download>download</a>
+        ${v.type === "daily" ? `<button class="rebuild" title="Re-encode this day from the frames still on disk">rebuild</button>` : ""}
         <button class="del" title="Delete this video from disk">delete</button>
       </div>
     </div>`;
@@ -1117,6 +1159,18 @@ function play(v, itemEl) {
       b.classList.add("active");
     };
   });
+  // Daily videos carry their date as the label, which is exactly what the
+  // build takes. Yearly and events are built by different subcommands, so they
+  // get no button rather than a misleading one.
+  const rebuildBtn = area.querySelector(".rebuild");
+  if (rebuildBtn) {
+    rebuildBtn.onclick = () => {
+      if (!confirm(`Rebuild ${v.camera} ${v.label} from the frames still on disk? `
+                   + `The existing video is only replaced once the new encode is verified.`)) return;
+      startBuild(v.label, v.camera, rebuildBtn);
+    };
+  }
+
   area.querySelector(".del").onclick = async () => {
     if (!confirm(`Delete ${v.camera} ${v.label} (${v.size_mb} MB) from disk?\n\n`
                  + deleteHint(v))) return;
@@ -1460,6 +1514,223 @@ async function renderStorage() {
       refreshBtn.textContent = "Refresh failed — try again";
     }
   });
+}
+
+// ---------------------------------------------------------------------
+// Cameras / availability
+// ---------------------------------------------------------------------
+const REASON_LABELS = {
+  unreachable: "camera unreachable",
+  timeout: "timed out",
+  bad_response: "bad response (not a JPEG)",
+  http_error: "HTTP error",
+  write_failed: "disk write failed",
+  error: "other error",
+};
+
+function fmtClock(sec) {
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+  return String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+}
+
+function fmtDuration(sec) {
+  if (sec < 90) return Math.round(sec) + "s";
+  if (sec < 5400) return Math.round(sec / 60) + " min";
+  return (sec / 3600).toFixed(1) + " h";
+}
+
+// Shared by the Cameras view and the Rebuild button in the player.
+async function startBuild(date, camera, btn) {
+  const original = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "Starting…"; }
+  let res, data;
+  try {
+    res = await fetch("/api/build", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({date: date, camera: camera || null}),
+    });
+    data = await res.json().catch(() => ({}));
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = original; }
+    alert("Could not start the build: " + e);
+    return false;
+  }
+  if (btn) { btn.disabled = false; btn.textContent = original; }
+  if (res.status === 401) {
+    alert("Starting a build needs the Config-page passcode — open the Config tab and sign in first.");
+    return false;
+  }
+  if (res.status === 409) {
+    alert("A build is already running. Only one runs at a time — wait for the header indicator to clear, then try again.");
+    return false;
+  }
+  if (!res.ok || data.error) {
+    alert("Could not start the build: " + (data.error || res.status));
+    return false;
+  }
+  pollBuildStatus();   // surface it in the header without waiting for the next tick
+  return true;
+}
+
+function availCameraRow(c) {
+  const row = document.createElement("div");
+  row.className = "avail-row";
+
+  const line = document.createElement("div");
+  line.className = "avail-line";
+  const name = document.createElement("span");
+  name.className = "avail-name";
+  name.textContent = c.camera;
+  line.appendChild(name);
+
+  const bar = document.createElement("div");
+  bar.className = "avail-bar";
+  const fill = document.createElement("div");
+  const pct = c.availability_pct;
+  fill.className = "avail-fill" + (pct === null ? "" : pct < 80 ? " bad" : pct < 98 ? " warn" : "");
+  fill.style.width = (pct === null ? 0 : pct) + "%";
+  bar.appendChild(fill);
+  line.appendChild(bar);
+
+  const pctEl = document.createElement("span");
+  pctEl.className = "avail-pct";
+  pctEl.textContent = pct === null ? "—" : pct + "%";
+  line.appendChild(pctEl);
+  row.appendChild(line);
+
+  const bits = [];
+  if (c.captured === null) {
+    bits.push("no frames and no video — nothing left to measure");
+  } else {
+    bits.push(c.captured + " of " + c.expected + " frames");
+    if (c.missed) bits.push(c.missed + " missed");
+    if (c.longest_gap_seconds) bits.push("longest gap " + fmtDuration(c.longest_gap_seconds));
+    if (c.gaps && c.gaps.length) {
+      const shown = c.gaps.slice(0, 3).map(g => fmtClock(g.start) + "–" + fmtClock(g.end)).join(", ");
+      const more = c.gaps.length > 3 ? " +" + (c.gaps.length - 3) + " more" : "";
+      bits.push("gaps " + shown + more);
+    }
+  }
+  Object.keys(c.reasons || {}).forEach(reason => {
+    bits.push((REASON_LABELS[reason] || reason) + " ×" + c.reasons[reason]);
+  });
+  const detail = document.createElement("div");
+  detail.className = "avail-detail";
+  detail.textContent = bits.join(" · ");
+  row.appendChild(detail);
+
+  if (c.source === "video") {
+    const note = document.createElement("div");
+    note.className = "avail-detail avail-approx";
+    note.textContent = "frames already pruned — counted from the built video, which undercounts event-burst frames";
+    row.appendChild(note);
+  }
+
+  if (c.hourly_missed && c.hourly_missed.some(n => n > 0)) {
+    const peak = Math.max.apply(null, c.hourly_missed);
+    const strip = document.createElement("div");
+    strip.className = "avail-hours";
+    c.hourly_missed.forEach((n, hour) => {
+      const cell = document.createElement("div");
+      cell.className = "avail-hour";
+      if (n > 0) {
+        cell.style.background = "#e5534b";
+        cell.style.opacity = String(0.35 + 0.65 * (n / peak));
+      }
+      cell.title = String(hour).padStart(2, "0") + ":00 — " + n + " missed";
+      strip.appendChild(cell);
+    });
+    row.appendChild(strip);
+  }
+  return row;
+}
+
+async function renderAvailability() {
+  document.getElementById("sidebar").innerHTML = "";
+  const area = document.getElementById("player-area");
+  area.innerHTML = `<div id="empty">Loading camera availability&hellip;</div>`;
+
+  let data;
+  try {
+    data = await (await fetch("/api/availability?days=14")).json();
+  } catch (e) {
+    area.innerHTML = `<div id="empty">Could not load availability.</div>`;
+    return;
+  }
+
+  area.innerHTML = `<div id="cameras-view"></div>`;
+  const view = area.querySelector("#cameras-view");
+
+  const box = document.createElement("div");
+  box.className = "build-box";
+  const title = document.createElement("div");
+  title.className = "forecast-title";
+  title.textContent = "Build videos for a date";
+  const blurb = document.createElement("div");
+  blurb.className = "forecast-detail";
+  blurb.style.marginBottom = "8px";
+  blurb.textContent = "Rebuilds the timelapse for a day from the frames still on disk. Only possible while "
+    + "those frames survive the snapshot retention window — past that, the day is gone. "
+    + "One build runs at a time.";
+  box.append(title, blurb);
+
+  const row = document.createElement("div");
+  row.className = "build-row";
+  const dateInput = document.createElement("input");
+  dateInput.type = "date";
+  dateInput.value = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  dateInput.max = new Date().toISOString().slice(0, 10);
+  const camSel = document.createElement("select");
+  const anyOpt = document.createElement("option");
+  anyOpt.value = "";
+  anyOpt.textContent = "All cameras";
+  camSel.appendChild(anyOpt);
+  state.cameras.forEach(cam => {
+    const opt = document.createElement("option");
+    opt.value = cam;
+    opt.textContent = cam;
+    camSel.appendChild(opt);
+  });
+  const go = document.createElement("button");
+  go.className = "storage-refresh";
+  go.textContent = "Build";
+  go.onclick = async () => {
+    if (!dateInput.value) { alert("Pick a date first."); return; }
+    if (await startBuild(dateInput.value, camSel.value, go)) {
+      go.textContent = "Started";
+      setTimeout(() => { go.textContent = "Build"; }, 2500);
+    }
+  };
+  row.append(dateInput, camSel, go);
+  box.appendChild(row);
+  view.appendChild(box);
+
+  (data.days || []).forEach(day => {
+    const card = document.createElement("div");
+    card.className = "avail-day";
+    const head = document.createElement("div");
+    head.className = "avail-head";
+    const d = document.createElement("span");
+    d.className = "avail-date";
+    d.textContent = day.date;
+    head.appendChild(d);
+    const rebuild = document.createElement("button");
+    rebuild.className = "storage-refresh";
+    rebuild.textContent = "Build this day";
+    rebuild.onclick = () => startBuild(day.date, "", rebuild);
+    head.appendChild(rebuild);
+    card.appendChild(head);
+    (day.cameras || []).forEach(c => card.appendChild(availCameraRow(c)));
+    view.appendChild(card);
+  });
+
+  const note = document.createElement("div");
+  note.className = "stat-footnote";
+  note.textContent = "Measured against the schedule for each camera (its own interval and capture window), "
+    + "reconstructed from the frames on disk. Storm bursts add frames, so a stormy day can read 100%. "
+    + "Updated " + (data.generated_at || "");
+  view.appendChild(note);
 }
 
 // ---------------------------------------------------------------------
