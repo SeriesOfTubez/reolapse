@@ -8,6 +8,34 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.5.0] - 2026-09-11
 
+### Security
+- **The container image now upgrades its base OS packages at build time,
+  closing 7 HIGH-severity `libuuid` / util-linux CVEs.** The Dockerfile
+  installed ffmpeg and tini but never upgraded what `python:3.12-alpine`
+  already shipped, so patched versions of *pre-installed* packages were only
+  picked up whenever that base image happened to be rebuilt upstream. Alpine
+  had published fixes for all seven; the image was carrying them regardless.
+
+  `libuuid` goes from **2.42.1-r0 to 2.42.3-r1**, which resolves:
+
+  | CVE | Issue |
+  |---|---|
+  | [CVE-2026-53612](https://avd.aquasec.com/nvd/cve-2026-53612) | TOCTOU in `mount` when applying post-mount ownership/mode changes |
+  | [CVE-2026-53613](https://avd.aquasec.com/nvd/cve-2026-53613) | TOCTOU in `mount` via ancestor directory swap |
+  | [CVE-2026-53614](https://avd.aquasec.com/nvd/cve-2026-53614) | SUID `mount(8)` allows `nosuid`/`noexec` bypass via `LIBMOUNT_FORCE_MOUNT2` |
+  | [CVE-2026-76642](https://avd.aquasec.com/nvd/cve-2026-76642) | A failed external mount helper still runs privileged X-mount post-hooks |
+  | [CVE-2026-78408](https://avd.aquasec.com/nvd/cve-2026-78408) | `nsenter --join-cgroup` leaks root cgroup migration authority |
+  | [CVE-2026-78409](https://avd.aquasec.com/nvd/cve-2026-78409) | `X-mount.subdir` detached-tree resolution can escape via intermediate symlinks |
+  | [CVE-2026-78410](https://avd.aquasec.com/nvd/cve-2026-78410) | Restricted bind mounts do not pin the source, allowing `X-mount.owner/group/mode` abuse |
+
+  Exploitability in this image is low — it runs as an unprivileged `USER app`
+  and never calls `mount` — but the fixes were available and the image should
+  not ship known-vulnerable packages. CVE-2026-78408 is the reason the pin is
+  `-r1` rather than `-r0`; the other six are fixed in `2.42.3-r0`.
+
+  The scan that caught this runs on every push and pull request, plus weekly,
+  precisely so CVEs disclosed *after* a commit lands still surface.
+
 ### Fixed
 - **A failed snapshot no longer leaves a zero-byte JPEG behind.** Frames were
   written straight to their final path, so any partial write — a full disk,
@@ -69,13 +97,6 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   itself when a build failed, so builds could stay broken for days without a
   single sign of it anywhere in the interface. It now reports the last failure
   until a build succeeds.
-- **Container image: base OS packages are upgraded at build time.** The
-  Dockerfile installed ffmpeg and tini but never upgraded what the base image
-  already shipped, so patched versions of pre-installed packages were only
-  picked up whenever `python:3.12-alpine` happened to be rebuilt upstream. This
-  left 7 HIGH-severity `libuuid`/util-linux CVEs in the published image with
-  fixes already available in Alpine.
-
 ### Changed
 - **Frames are downscaled before deflicker, not after.** The filter chain ran
   `deflicker,scale`, so the deflicker window buffered `deflicker_size` whole
