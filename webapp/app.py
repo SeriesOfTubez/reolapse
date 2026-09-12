@@ -666,6 +666,24 @@ def create_app(cfg, config_path=None):
             return jsonify({"generated_at": None, "cameras": {}, "system": {}})
         return jsonify(json.loads(stats_path.read_text(encoding="utf-8")))
 
+    @app.post("/api/storage/refresh")
+    def storage_refresh():
+        """Recompute the storage stats on demand.
+
+        The stats file is otherwise only rewritten at the very end of a daily
+        build, so whenever a build fails -- or a disk fills up, or gets
+        expanded -- the Storage tab sits on numbers that can be days stale,
+        which is exactly when accurate free space matters most. POST rather
+        than GET so SameSite=Lax keeps it unreachable from another origin.
+        """
+        try:
+            import storage_stats
+            storage_stats.write_stats(state["cfg"])
+        except Exception as exc:
+            log.exception("manual storage stats refresh failed")
+            return jsonify({"error": f"could not refresh storage stats: {exc}"}), 500
+        return storage()
+
     @app.get("/api/config")
     @require_config_auth
     def get_config():

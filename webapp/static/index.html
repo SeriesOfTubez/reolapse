@@ -92,7 +92,13 @@
      stop its own click from bubbling up and re-triggering that navigation
      (see the version anchor's own click handler in the script). */
   .brand .version:hover { text-decoration: underline; color: var(--accent); }
-  .build-indicator { display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--accent); white-space: nowrap; }
+  .build-indicator {
+    display: flex; align-items: center; gap: 6px;
+    font-size: var(--fs-xs); color: var(--accent); white-space: nowrap;
+    /* Progress detail can get long ("2 of 3 - front-yard - 640/785 (82%)");
+       truncate rather than push the rest of the header around. */
+    max-width: 340px; overflow: hidden; text-overflow: ellipsis;
+  }
   .build-indicator[hidden] { display: none; }
 
   /* margin-left: auto pins this to the far right of the header regardless of
@@ -329,6 +335,27 @@
     font-size: var(--fs-sm);
     border-bottom: 1px solid var(--border);
   }
+  /* Only dismissable banners become flex rows, so plain textContent warnings
+     keep their existing layout untouched. */
+  .warning-dismissable { display: flex; align-items: center; gap: var(--space-3); }
+  .warning-dismissable > .warn-text { flex: 1; }
+  .warn-dismiss {
+    flex: none; background: none; border: 0; cursor: pointer;
+    padding: 0 var(--space-1); color: inherit; opacity: 0.6;
+    font-size: 18px; line-height: 1;
+  }
+  .warn-dismiss:hover { opacity: 1; }
+  .warning-severe { background: #f5c0471f; color: #d9961f; }
+  .warning-critical { background: #e5534b1f; color: #e5534b; }
+  .build-indicator.build-failed { color: #e5534b; cursor: pointer; }
+  .storage-refresh {
+    margin-left: var(--space-2); padding: 2px var(--space-2);
+    font-size: var(--fs-xs); font-family: inherit; cursor: pointer;
+    color: var(--accent); background: none;
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+  }
+  .storage-refresh:hover:not(:disabled) { border-color: var(--accent); }
+  .storage-refresh:disabled { opacity: 0.6; cursor: default; }
 
   #storage-view { width: 100%; max-width: 760px; }
   .forecast-banner {
@@ -519,8 +546,10 @@
     line-height: 1.5;
   }
   .sensitivity-slider { width: 100%; accent-color: var(--accent); margin-bottom: var(--space-1); }
-  .sensitivity-caption { font-size: var(--fs-xs); color: var(--text-2); margin-bottom: var(--space-3); }
+  .sensitivity-caption { font-size: var(--fs-xs); color: var(--text-2); margin-bottom: 2px; }
   .is-custom .sensitivity-caption { color: var(--text-3); }
+  .sensitivity-blurb { font-size: var(--fs-xs); color: var(--text-3); margin-bottom: var(--space-3); }
+  .sensitivity-blurb:empty { margin-bottom: var(--space-3); }
   .cfg-row {
     display: flex;
     align-items: flex-start;
@@ -716,6 +745,7 @@ async function load() {
     warnBox.appendChild(div);
   });
   checkForUpdate();
+  checkStorage();
 
   // Keep the currently-selected camera across a refresh (e.g. the poll that
   // fires when a nightly build finishes) instead of always snapping back to
@@ -877,22 +907,109 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape" && !helpDropdown.hidden) closeHelpMenu();
 });
 
+// Banner dismissals are per browser. The key carries a signature -- the
+// version, or the severity tier -- so a banner comes back when the situation
+// actually changes instead of being silenced forever by one click.
+function bannerDismissed(key) {
+  try { return localStorage.getItem("reolapse.dismissed." + key) === "1"; }
+  catch (e) { return false; }   // private mode / storage disabled
+}
+function dismissBanner(key) {
+  try { localStorage.setItem("reolapse.dismissed." + key, "1"); } catch (e) {}
+}
+function makeDismissable(div, key) {
+  div.classList.add("warning-dismissable");
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "warn-dismiss";
+  btn.setAttribute("aria-label", "Dismiss");
+  btn.textContent = "×";
+  btn.addEventListener("click", () => { dismissBanner(key); div.remove(); });
+  div.appendChild(btn);
+}
+
+// Free-space banner. Thresholds are on *free* space, and fall back to the
+// runway forecast: this host broke at a reported 98% used, which sounds
+// survivable but was 2 GB free against ~1.2 GB/day of growth -- about a day.
+// A percentage on its own reads as calm right up until writes start failing.
+async function checkStorage() {
+  const warnBox = document.getElementById("warnings");
+  warnBox.querySelectorAll(".storage-banner").forEach(el => el.remove());
+  let data;
+  try { data = await (await fetch("/api/storage")).json(); }
+  catch (e) { return; }   // best-effort, same as the update check
+  const s = (data && data.system) || {};
+  if (s.disk_used_pct == null) return;
+
+  const freePct = 100 - s.disk_used_pct;
+  const freeGB = s.disk_free_gb;
+  const runway = (s.forecast || {}).runway_days;
+
+  let tier = null, msg = null, severity = "";
+  if (freePct <= 0 || freeGB <= 0.5) {
+    tier = "full";
+    severity = "warning-critical";
+    msg = `Storage is effectively full — ${freeGB} GB free. Captures and video builds will fail.`;
+  } else if (freePct < 5) {
+    tier = "5";
+    severity = "warning-critical";
+    msg = `Storage critically low — ${freeGB} GB free (${freePct}%).`;
+  } else if (freePct < 10) {
+    tier = "10";
+    severity = "warning-severe";
+    msg = `Storage low — ${freeGB} GB free (${freePct}%).`;
+  } else if (runway != null && runway < 7) {
+    tier = "runway";
+    severity = "warning-severe";
+    msg = `Storage runs out in about ${Math.max(1, Math.round(runway))} day(s) at the current growth rate.`;
+  }
+  if (!tier) return;
+
+  // These figures are only rewritten by a completed build, so a run of failed
+  // builds leaves them days old -- say so rather than quoting stale free space
+  // as if it were current.
+  let staleNote = "";
+  const gen = data.generated_at ? Date.parse(data.generated_at.replace(" ", "T")) : NaN;
+  if (!isNaN(gen) && Date.now() - gen > 36 * 3600 * 1000) {
+    staleNote = ` These figures are from ${data.generated_at} — use Refresh now on the Storage tab.`;
+  }
+
+  const key = `storage:${tier}:${data.generated_at || ""}`;
+  if (bannerDismissed(key)) return;
+  const div = document.createElement("div");
+  div.className = `warning storage-banner ${severity}`;
+  const text = document.createElement("span");
+  text.className = "warn-text";
+  text.textContent = msg + staleNote;
+  div.appendChild(text);
+  makeDismissable(div, key);
+  warnBox.appendChild(div);
+}
+
 function checkForUpdate() {
   fetch("/api/update-check").then(r => r.json()).then(u => {
     const warnBox = document.getElementById("warnings");
     const existing = warnBox.querySelector(".update-banner");
     if (existing) existing.remove();
     if (!u.update_available || !u.release_url) return;
+    // Keyed on the version, so dismissing v1.2.0 stays dismissed but the next
+    // release announces itself again.
+    const key = `update:${u.latest_version}`;
+    if (bannerDismissed(key)) return;
     const div = document.createElement("div");
     div.className = "warning update-banner";
-    div.append(`A new version (v${u.latest_version}) is available — `);
+    const text = document.createElement("span");
+    text.className = "warn-text";
+    text.append(`A new version (v${u.latest_version}) is available — `);
     const link = document.createElement("a");
     link.href = u.release_url;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
     link.textContent = "see what's new";
-    div.appendChild(link);
-    div.append(".");
+    text.appendChild(link);
+    text.append(".");
+    div.appendChild(text);
+    makeDismissable(div, key);
     warnBox.appendChild(div);
   }).catch(() => {});   // best-effort; a failed check just means no banner
 }
@@ -1321,8 +1438,28 @@ async function renderStorage() {
         </tr></thead>
         <tbody>${camRows}</tbody>
       </table>
-      <div class="stat-footnote">Updated ${data.generated_at} &middot; refreshed after each nightly build</div>
+      <div class="stat-footnote">Updated ${data.generated_at} &middot; refreshed after each nightly build
+        <button type="button" id="storage-refresh" class="storage-refresh">Refresh now</button>
+      </div>
     </div>`;
+
+  // Recompute on demand. Without this the only way to update these figures is
+  // to complete a daily build, so a stretch of failed builds -- or a disk that
+  // was just expanded -- leaves the page quoting numbers that are days old.
+  const refreshBtn = document.getElementById("storage-refresh");
+  refreshBtn.addEventListener("click", async () => {
+    refreshBtn.disabled = true;
+    refreshBtn.textContent = "Refreshing…";
+    try {
+      const r = await fetch("/api/storage/refresh", {method: "POST"});
+      if (!r.ok) throw new Error("refresh failed");
+      await renderStorage();    // redraw with the new figures
+      checkStorage();           // thresholds may have crossed either way
+    } catch (e) {
+      refreshBtn.disabled = false;
+      refreshBtn.textContent = "Refresh failed — try again";
+    }
+  });
 }
 
 // ---------------------------------------------------------------------
@@ -1337,17 +1474,29 @@ const EVENT_TAGS = ["storm", "snow", "rain", "full-moon", "blue-moon",
 // Conservative -> Aggressive; "Balanced" is today's shipped defaults,
 // unchanged, and doubles as the slider's deterministic no-match fallback.
 const STORM_SENSITIVITY_PRESETS = [
-  {name: "Conservative", values: {
+  {name: "Conservative",
+   blurb: "Only severe storms. Few false alarms, but pop-up storms will be missed.",
+   values: {
     "events.storm_cape_min": 1500, "events.storm_precip_mm": 0.5, "events.storm_gust_kmh": 80}},
-  {name: "Balanced", values: {
+  {name: "Balanced",
+   blurb: "Catches most real storms without tagging ordinary rain.",
+   values: {
     "events.storm_cape_min": 800, "events.storm_precip_mm": 0.1, "events.storm_gust_kmh": 60}},
-  {name: "Aggressive", values: {
+  {name: "Aggressive",
+   blurb: "Catches weak and pop-up storms; expect some heavy showers tagged as storms.",
+   values: {
     "events.storm_cape_min": 400, "events.storm_precip_mm": 0.1, "events.storm_gust_kmh": 45}},
 ];
 const SNOW_SENSITIVITY_PRESETS = [
-  {name: "Conservative", values: {"events.snow_cm_min": 0.5}},
-  {name: "Balanced", values: {"events.snow_cm_min": 0.1}},
-  {name: "Aggressive", values: {"events.snow_cm_min": 0.0}},
+  {name: "Conservative",
+   blurb: "Only real accumulation. Flurries are ignored.",
+   values: {"events.snow_cm_min": 0.5}},
+  {name: "Balanced",
+   blurb: "Any measurable snowfall in the reporting interval.",
+   values: {"events.snow_cm_min": 0.1}},
+  {name: "Aggressive",
+   blurb: "Any snow at all, including a reported trace with no accumulation.",
+   values: {"events.snow_cm_min": 0.0}},
 ];
 
 async function renderConfig() {
@@ -2505,6 +2654,12 @@ function sensitivityGroup(opts) {
   caption.className = "sensitivity-caption";
   box.appendChild(caption);
 
+  // Plain-English line under the numbers: the tier names alone don't say what
+  // you trade away by moving the slider.
+  const blurb = document.createElement("div");
+  blurb.className = "sensitivity-blurb";
+  box.appendChild(blurb);
+
   function currentValues() {
     const values = {};
     paths.forEach(path => {
@@ -2520,10 +2675,12 @@ function sensitivityGroup(opts) {
     if (idx >= 0) {
       slider.value = String(idx);
       caption.textContent = `${opts.presets[idx].name} — ${opts.describe(opts.presets[idx].values)}`;
+      blurb.textContent = opts.presets[idx].blurb || "";
       box.classList.remove("is-custom");
     } else {
       slider.value = String(balancedIndex);
       caption.textContent = `Custom — ${opts.describe(values)}`;
+      blurb.textContent = "Hand-tuned values — the slider shows Balanced as a reference point.";
       box.classList.add("is-custom");
     }
   }
@@ -2843,9 +3000,28 @@ async function pollBuildStatus() {
   try {
     const s = await (await fetch("/api/build-status")).json();
     const running = s.state === "running";
+    const last = s.last || {};
+    el.classList.toggle("build-failed", !running && last.ok === false);
     if (running) {
+      // Built from text nodes rather than innerHTML: the detail carries camera
+      // names straight out of config.yaml.
       const kind = s.kind ? s.kind + " " : "";
-      el.innerHTML = `<span class="build-spin"></span> Building ${kind}videos…`;
+      el.textContent = "";
+      const spin = document.createElement("span");
+      spin.className = "build-spin";
+      el.appendChild(spin);
+      el.append(` Building ${kind}videos`);
+      if (s.detail) el.append(` — ${s.detail}`);
+      el.append("…");
+      el.title = el.textContent.trim();   // full text when the header truncates
+      el.hidden = false;
+    } else if (last.ok === false) {
+      // A failed build used to render nothing at all -- the indicator simply
+      // hid itself -- so builds could stay broken for days with no sign of it
+      // anywhere in the UI.
+      const label = last.label ? ` (${last.label})` : "";
+      el.textContent = `Last ${last.kind || "build"} build failed${label}`;
+      el.title = "Check the service logs, then rebuild that date";
       el.hidden = false;
     } else {
       el.hidden = true;
