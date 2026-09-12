@@ -2,8 +2,12 @@
 # workload that just needs Python + ffmpeg.
 FROM python:3.12-alpine
 
-# ffmpeg for encoding, tini for correct signal handling as PID 1
-RUN apk add --no-cache ffmpeg tini
+# ffmpeg for encoding, tini for correct signal handling as PID 1.
+# `apk upgrade` first: the base image pins OS packages at whatever it shipped
+# with, so patched versions of pre-installed packages (libuuid/util-linux, most
+# recently) are only picked up if we ask for them — waiting on an upstream
+# python:3.12-alpine rebuild leaves known-fixed CVEs in the image.
+RUN apk upgrade --no-cache && apk add --no-cache ffmpeg tini
 
 WORKDIR /app
 
