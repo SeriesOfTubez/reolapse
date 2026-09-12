@@ -106,6 +106,36 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   input count for a real percentage. Reports are throttled to every 5 seconds,
   and the whole thing degrades quietly — if no progress arrives, the indicator
   falls back to the plain "Building..." message it showed before.
+- **Camera availability reporting.** A new **Cameras** tab reports, per camera
+  per day, how many frames were captured against how many were scheduled, where
+  the gaps fell (with a midnight-to-midnight strip showing the time of day), the
+  longest outage, and why frames were missed. Failed snapshots are now recorded
+  to a rolling `capture_misses.jsonl` with a classified reason — a camera that
+  loses power and a disk that fills both produce a missing frame, and conflating
+  them turns "the disk is full" into "all three cameras went offline at once".
+
+  The numbers are reconstructed from the frames on disk rather than from a
+  running counter, so history that predates this feature still reports and a
+  restarted capture process cannot zero them. Two details that matter: the
+  denominator is each camera's own scheduled ticks (its interval, gated on its
+  own capture window) rather than wall-clock, or a night camera would read as
+  permanently 50% down; and gaps are bounded by that schedule, without which an
+  outage running to the end of the day is invisible — there is no later frame
+  to measure it against, which is precisely the shape a full disk produces.
+  Run against this project's own host it reconstructs a real incident unaided:
+  67% on 09/08 with the gap starting at 16:08, 49% on 09/09, and a 00:00–06:51
+  gap on 09/10.
+- **Build or rebuild a day from the UI.** The Cameras tab takes a date and an
+  optional camera; the player gains a **rebuild** button for daily videos. New
+  `POST /api/build`, gated by the Config passcode, which validates the date,
+  refuses a future one, refuses an unknown camera, and returns 409 if a build is
+  already running. Deliberately not routed through `reolapse-daily.service`:
+  that unit runs a bare `daily` with no `--date`, which is exactly the case that
+  cannot rebuild a past day. The web process already runs as the same user out
+  of the same venv, so it spawns the build directly — no sudo grant, nothing
+  added to the sudoers file. Builds are detached, since they outlive their
+  request by an order of magnitude, and report through the header indicator like
+  any other build.
 - **Storm and snow sensitivity tiers now say what they trade away.** The slider
   showed only the tier name and its raw numbers (`Conservative — CAPE 1500 J/kg
   · rain 0.5 mm · gusts 80 km/h`), which doesn't tell you what moving it costs.

@@ -394,28 +394,6 @@ judge for yourself rather than take it on faith:
 - Object-storage (S3/Garage) backend for videos.
 - Parallelize daily builds across cameras (currently sequential — see
   [Performance](#performance)).
-- Camera availability tracking. A failed snapshot is retried once and then
-  only `log.error`'d (`capture.py`), so a camera that loses power leaves no
-  durable trace — and the journal is precisely what becomes unreliable during
-  an incident. Record each miss to a rolling JSONL (same pattern as
-  `build_times.jsonl`) with timestamp, camera, and reason, then surface per-day
-  availability: expected vs. captured frames, % uptime, and the time-of-day
-  distribution of the gaps. Two things to get right: the denominator is
-  *expected ticks* (per-camera interval, gated on that camera's daylight
-  window), not wall-clock, or a night camera reads as 50% down; and existing
-  days can be backfilled from what is already on disk by comparing file counts
-  against expected ticks, so history doesn't start empty. Worth carrying into
-  the render too — a gap makes the timelapse silently jump in time, so record
-  coverage % and longest gap per video (embeddable as mp4 metadata alongside
-  the existing `season` tag) and show it next to the video in the UI.
-- A way to manually trigger a video build from the UI, for a chosen date —
-  today this means SSHing in to run `build_timelapse.py daily --date ...`.
-  Follow the Config page's "Restart services" precedent, but note the
-  `reolapse-daily.service` unit runs a bare `daily` with no `--date`, so a
-  date-picking trigger must spawn `build_timelapse.py` directly (the webapp
-  already runs as the same user and venv — no sudo grant needed). Gate it
-  behind the Config passcode, detach it (builds outlast a request), and refuse
-  to start one while `build_status.json` says a build is running.
 
 ## Contributing
 
