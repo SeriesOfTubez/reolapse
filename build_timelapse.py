@@ -27,8 +27,8 @@ from pathlib import Path
 from common import (build_status_path, camera_events_enabled,
                     camera_include_events_in_daily, camera_interval_seconds,
                     event_gap_minutes, event_min_frames, load_config,
-                    local_today, snapshots_dir, tzinfo_for, videos_dir,
-                    yearly_frames_dir)
+                    local_today, probe_frame_count, snapshots_dir, tzinfo_for,
+                    videos_dir, yearly_frames_dir)
 
 log = logging.getLogger("timelapse")
 
@@ -39,7 +39,10 @@ MIN_FRAMES = 2
 def build_status(cfg, kind, label):
     """Mark a build running in data/build_status.json for the duration, then
     idle, so the web UI can show a "building…" indicator. Best-effort — a
-    status-write failure never affects the build itself."""
+    status-write failure never affects the build itself.
+
+    Yields a heartbeat callable; call it as work completes so a build that runs
+    for hours is not mistaken for one that died."""
     path = build_status_path(cfg)
     started = time.time()
 
@@ -50,12 +53,20 @@ def build_status(cfg, kind, label):
         except OSError:
             log.debug("could not write build status", exc_info=True)
 
-    _write({"state": "running", "kind": kind, "label": str(label),
-            "started_epoch": started,
-            "started_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+    def heartbeat(detail=None):
+        """Refresh the running marker. Called as each camera finishes so a long
+        build keeps proving it is alive -- see read_build_status, which times a
+        build out against this, not against when it started."""
+        _write({"state": "running", "kind": kind, "label": str(label),
+                "started_epoch": started,
+                "heartbeat_epoch": time.time(),
+                "detail": detail,
+                "started_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+
+    heartbeat()
     ok = True
     try:
-        yield
+        yield heartbeat
     except BaseException:
         ok = False
         raise
@@ -75,12 +86,49 @@ def require_ffmpeg():
         )
 
 
+def run_ffmpeg(cmd, total=None, progress=None, interval=5.0):
+    """Run ffmpeg, optionally reporting encoded-frame counts as it goes.
+
+    `-progress pipe:1` makes ffmpeg emit machine-readable key=value blocks on
+    stdout, and `-nostats` suppresses the human-readable status line that would
+    otherwise interleave with them. stderr stays attached to ours, so warnings
+    and errors reach the log exactly as they did before.
+
+    Reports are throttled to `interval` seconds: ffmpeg emits a block per
+    frame, and the callback's job is to rewrite a status file on disk.
+    """
+    if progress is None:
+        subprocess.run(cmd, check=True)
+        return
+    cmd = cmd[:1] + ["-nostats", "-progress", "pipe:1"] + cmd[1:]
+    last = 0.0
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)
+    try:
+        for line in proc.stdout:
+            key, _, value = line.strip().partition("=")
+            if key != "frame":
+                continue
+            now = time.monotonic()
+            if now - last < interval:
+                continue
+            last = now
+            try:
+                progress(int(value), total)
+            except Exception:
+                log.debug("progress callback failed", exc_info=True)
+    finally:
+        proc.stdout.close()
+        rc = proc.wait()
+    if rc != 0:
+        raise subprocess.CalledProcessError(rc, cmd)
+
+
 X264_PRESETS = ("ultrafast", "superfast", "veryfast", "faster", "fast",
                 "medium", "slow", "slower", "veryslow")
 
 
 def build_video(frames, out_path: Path, *, fps, crf, deflicker_size, max_height=0,
-                metadata=None, preset="medium"):
+                metadata=None, preset="medium", progress=None):
     """Encode an ordered list of JPEGs into an mp4.
 
     Frames are hardlinked (copy fallback) into a temp dir as a numbered
@@ -114,10 +162,17 @@ def build_video(frames, out_path: Path, *, fps, crf, deflicker_size, max_height=
                 shutil.copy2(src, dst)
 
         filters = []
-        if deflicker_size and deflicker_size > 1:
-            filters.append(f"deflicker=mode=pm:size={deflicker_size}")
+        # Scale BEFORE deflicker. deflicker buffers `size` whole frames, and
+        # buffering them at source resolution is what dominates this filter
+        # graph's memory: a 5120x1920 camera holds ~147 MB in the window
+        # alone, which on a small host pushes the encode into swap and makes
+        # the build I/O-bound rather than CPU-bound. Downscaling first roughly
+        # halves that. It is smoothing exposure flicker between frames, which
+        # works the same after a resize.
         if max_height:
             filters.append(f"scale=-2:min(ih\\,{max_height})")
+        if deflicker_size and deflicker_size > 1:
+            filters.append(f"deflicker=mode=pm:size={deflicker_size}")
         filters.append("format=yuv420p")
 
         cmd = [
@@ -133,10 +188,36 @@ def build_video(frames, out_path: Path, *, fps, crf, deflicker_size, max_height=
         # whitelist of "known" keys (comment, artist, ...) and silently drops
         # anything else, including custom keys like "season".
         movflags = "+faststart+use_metadata_tags" if metadata else "+faststart"
-        cmd += ["-movflags", movflags, str(out_path)]
-        subprocess.run(cmd, check=True)
-    log.info("wrote %s (%d frames, %.1f MB)", out_path, len(frames),
-             out_path.stat().st_size / 1e6)
+        # Encode to a temp name and rename in only once the result is verified.
+        # ffmpeg writes its output in place, so encoding straight to out_path
+        # publishes a half-written file for the whole run -- long enough for
+        # prune_old_snapshots to accept it as "built" and delete the source
+        # frames while they are still being read.
+        part_path = out_path.with_name(out_path.name + ".part")
+        # -f mp4 is required, not decorative: ffmpeg picks its muxer from the
+        # output extension, and ".part" maps to nothing ("Unable to choose an
+        # output format"). The suffix has to stay non-.mp4 so a half-written
+        # file never matches the *.mp4 globs the web UI and pruning walk.
+        cmd += ["-movflags", movflags, "-f", "mp4", str(part_path)]
+        try:
+            run_ffmpeg(cmd, total=len(frames), progress=progress)
+
+            # The image2 demuxer stops at the first frame it cannot decode and
+            # still exits 0, so a single corrupt JPEG yields a truncated video
+            # that looks like a clean build. Check what actually came out.
+            # deflicker buffers a window, so allow for that many frames.
+            encoded = probe_frame_count(part_path)
+            tolerance = max(1, deflicker_size or 0)
+            if encoded is not None and encoded < len(frames) - tolerance:
+                raise RuntimeError(
+                    f"encoded only {encoded} of {len(frames)} frames -- an "
+                    f"unreadable input frame stopped the encode early")
+            size_mb = part_path.stat().st_size / 1e6
+            os.replace(part_path, out_path)
+        except BaseException:
+            part_path.unlink(missing_ok=True)
+            raise
+    log.info("wrote %s (%d frames, %.1f MB)", out_path, len(frames), size_mb)
 
 
 def select_evenly(frames, n):
@@ -248,63 +329,104 @@ def cmd_daily(cfg, args):
         return
     date = resolve_date(args.date, tz)
     season = season_metadata(cfg, date)
-    with build_status(cfg, "daily", date):
-        for cam in selected_cameras(cfg, args.camera):
-            frames = day_frames(cfg, cam["name"], date)
-            if len(frames) < MIN_FRAMES:
-                log.warning("%s: only %d frame(s) for %s, skipping", cam["name"], len(frames), date)
-                continue
-            tags = daily_exclusion_tags(cfg, cam)
-            daily_frames = frames_outside_spans(cfg, date, frames, tags) if tags else frames
-            dropped = len(frames) - len(daily_frames)
-            if dropped:
-                log.info("%s: excluded %d event-burst frame(s) from the daily video for %s "
-                         "(daily_video.include_events is off); the yearly archive keeps them",
-                         cam["name"], dropped, date)
-            if len(daily_frames) < MIN_FRAMES:
-                # A day that was event-tagged end to end. Skip the daily video,
-                # but still archive — those yearly frames are irreplaceable and
-                # the day genuinely has plenty of them.
-                log.warning("%s: only %d non-event frame(s) for %s, skipping the daily "
-                            "video (yearly frames still archived)",
-                            cam["name"], len(daily_frames), date)
-            else:
-                d = cfg["daily_video"]
-                out = videos_dir(cfg) / cam["name"] / "daily" / f"{date.isoformat()}.mp4"
-                build_video(
-                    daily_frames, out,
-                    fps=d["fps"], crf=d["crf"],
-                    deflicker_size=d.get("deflicker_size", 0),
-                    max_height=d.get("max_height", 0),
-                    preset=d.get("preset", "medium"),
-                    metadata=season,
-                )
-            archive_yearly_frames(cfg, cam["name"], date, frames)
+    failed = []
+    try:
+        with build_status(cfg, "daily", date) as heartbeat:
+            cameras = selected_cameras(cfg, args.camera)
+            for index, cam in enumerate(cameras, start=1):
+                # Reported as "2 of 3 · front-yard · 640/785 (82%)". The
+                # camera counter is the coarse progress; ffmpeg's own frame
+                # count fills in how far through the current encode we are.
+                # Defaults bind cam/index per iteration rather than late.
+                def beat(done=None, total=None, _cam=cam, _index=index):
+                    detail = f"{_index} of {len(cameras)} · {_cam['name']}"
+                    if done is not None and total:
+                        detail += f" · {done}/{total} ({round(100 * done / total)}%)"
+                    heartbeat(detail)
+
+                try:
+                    beat()
+                    build_camera_day(cfg, cam, date, season, progress=beat)
+                except Exception:
+                    # One camera's unreadable frame must not cost every camera
+                    # after it in the list. Record it and carry on; the build
+                    # still fails at the end, so the status file and the exit
+                    # code stay honest about what happened.
+                    log.exception("%s: daily build failed for %s (continuing with "
+                                  "the remaining cameras)", cam["name"], date)
+                    failed.append(cam["name"])
+
+            try:
+                build_event_videos(cfg, date, args.camera)
+            except Exception:
+                log.exception("event video build failed (daily videos are unaffected)")
+
+            try:
+                for cam in selected_cameras(cfg, args.camera):
+                    prune_daily_videos(cfg, cam["name"])
+                prune_event_videos(cfg)
+            except Exception:
+                log.exception("video retention pruning failed (build is unaffected)")
+
+            if failed:
+                raise RuntimeError("daily build failed for: " + ", ".join(failed))
+    finally:
+        # Runs even when the build failed. The Storage tab reads what
+        # write_stats() produces, so letting a failure skip it leaves the UI
+        # frozen on stale numbers for as long as builds keep failing -- exactly
+        # when accurate free space matters most.
+        elapsed = time.time() - start
+        log.info("daily build for %s finished in %.1f min%s", date, elapsed / 60,
+                 f" ({len(failed)} camera(s) failed)" if failed else "")
+        try:
+            record_build_time(cfg, date, elapsed)
+        except Exception:
+            log.exception("build time recording failed")
 
         try:
-            build_event_videos(cfg, date, args.camera)
+            import storage_stats
+            storage_stats.write_stats(cfg)
         except Exception:
-            log.exception("event video build failed (daily videos are unaffected)")
+            log.exception("storage stats update failed (daily videos are unaffected)")
 
-        try:
-            for cam in selected_cameras(cfg, args.camera):
-                prune_daily_videos(cfg, cam["name"])
-            prune_event_videos(cfg)
-        except Exception:
-            log.exception("video retention pruning failed (build is unaffected)")
 
-    elapsed = time.time() - start
-    log.info("daily build finished in %.1f min", elapsed / 60)
-    try:
-        record_build_time(cfg, date, elapsed)
-    except Exception:
-        log.exception("build time recording failed")
+def build_camera_day(cfg, cam, date, season, progress=None):
+    """Build one camera's daily video for `date`, then archive its yearly frames.
 
-    try:
-        import storage_stats
-        storage_stats.write_stats(cfg)
-    except Exception:
-        log.exception("storage stats update failed (daily videos are unaffected)")
+    Split out of cmd_daily so each camera can be isolated behind its own
+    try/except -- see the caller.
+    """
+    frames = day_frames(cfg, cam["name"], date)
+    if len(frames) < MIN_FRAMES:
+        log.warning("%s: only %d frame(s) for %s, skipping", cam["name"], len(frames), date)
+        return
+    tags = daily_exclusion_tags(cfg, cam)
+    daily_frames = frames_outside_spans(cfg, date, frames, tags) if tags else frames
+    dropped = len(frames) - len(daily_frames)
+    if dropped:
+        log.info("%s: excluded %d event-burst frame(s) from the daily video for %s "
+                 "(daily_video.include_events is off); the yearly archive keeps them",
+                 cam["name"], dropped, date)
+    if len(daily_frames) < MIN_FRAMES:
+        # A day that was event-tagged end to end. Skip the daily video,
+        # but still archive — those yearly frames are irreplaceable and
+        # the day genuinely has plenty of them.
+        log.warning("%s: only %d non-event frame(s) for %s, skipping the daily "
+                    "video (yearly frames still archived)",
+                    cam["name"], len(daily_frames), date)
+    else:
+        d = cfg["daily_video"]
+        out = videos_dir(cfg) / cam["name"] / "daily" / f"{date.isoformat()}.mp4"
+        build_video(
+            daily_frames, out,
+            fps=d["fps"], crf=d["crf"],
+            deflicker_size=d.get("deflicker_size", 0),
+            max_height=d.get("max_height", 0),
+            preset=d.get("preset", "medium"),
+            metadata=season,
+            progress=progress,
+        )
+    archive_yearly_frames(cfg, cam["name"], date, frames)
 
 
 def record_build_time(cfg, date, seconds, keep_last=60):
@@ -444,8 +566,19 @@ def tag_spans(cfg, date, tag, gap_minutes=None):
         path = cond_dir / f"{day.isoformat()}.jsonl"
         if not path.exists():
             return []
-        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
-                if line.strip()]
+        out = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                out.append(json.loads(line))
+            except ValueError:
+                # A half-written line -- what a full disk leaves behind on
+                # an append. Skip it rather than letting one bad line raise
+                # and take out event building for the entire date.
+                log.warning("skipping unparseable line in %s: %.80s",
+                            path.name, line)
+        return out
 
     day_start = dt.datetime.combine(date, dt.time.min)
 

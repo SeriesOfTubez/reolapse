@@ -10,6 +10,8 @@ import json
 import math
 import os
 import re
+import shutil
+import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
@@ -238,22 +240,52 @@ def event_gap_minutes(cfg, tag) -> float:
     return max(0.0, value)
 
 
+def probe_frame_count(path):
+    """Frames actually present in an encoded video, or None if ffprobe is
+    missing or the container doesn't report a count. Reads the container index
+    instead of decoding, so it is effectively free.
+
+    Shared by the build (which verifies its own output before publishing it)
+    and by snapshot pruning (which refuses to delete frames behind a video
+    that never finished encoding).
+    """
+    if not shutil.which("ffprobe"):
+        return None
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=nb_frames", "-of", "csv=p=0", str(path)],
+            check=True, capture_output=True, text=True).stdout.strip()
+        return int(out)
+    except (subprocess.CalledProcessError, OSError, ValueError):
+        return None
+
+
 def build_status_path(cfg) -> Path:
     return cfg["storage"]["root"] / "build_status.json"
 
 
-def read_build_status(cfg, stale_seconds=3600) -> dict:
+def read_build_status(cfg, stale_seconds=3 * 3600) -> dict:
     """Current video-build status, written by build_timelapse and read by the
     web UI (they share the data dir). Returns {"state": "idle"} if nothing has
-    run, and treats a "running" status older than stale_seconds as idle so a
-    build killed mid-run (no clean exit) doesn't leave the UI stuck."""
+    run, and treats a stalled "running" status as idle so a build killed
+    mid-run (no clean exit) doesn't leave the UI stuck.
+
+    Staleness is measured from the heartbeat the build refreshes as each camera
+    finishes, not from when it started. Timing out on start time meant a build
+    vanished from the UI after an hour -- and a full build routinely runs
+    longer than that, so the indicator went dark for exactly the long builds
+    worth watching. Status files written before heartbeats existed have none;
+    fall back to their start time so they still expire.
+    """
     try:
         data = json.loads(build_status_path(cfg).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {"state": "idle"}
-    if data.get("state") == "running" and \
-            time.time() - data.get("started_epoch", 0) > stale_seconds:
-        return {"state": "idle", "last": data.get("last")}
+    if data.get("state") == "running":
+        last_seen = data.get("heartbeat_epoch") or data.get("started_epoch", 0)
+        if time.time() - last_seen > stale_seconds:
+            return {"state": "idle", "last": data.get("last")}
     return data
 
 

@@ -267,7 +267,19 @@ def _forecast(cfg, system, days_running):
 def _disk_usage(path):
     path = path if path.exists() else path.parent
     usage = shutil.disk_usage(path)
-    used_pct = round(100 * usage.used / usage.total) if usage.total else 0
+    # Percent of *usable* space, the way df computes Use%: used / (used + free).
+    # Deliberately not used / total: where a filesystem sets a root reserve
+    # (ext4 defaults to 5%, though cloud images often ship with 0) those blocks
+    # count as neither used nor free, so an unprivileged writer -- capture.py,
+    # for one -- can be out of space while used/total still reads ~95%. Matching
+    # df keeps this gauge honest wherever a reserve is set.
+    #
+    # Note the percentage alone is a poor alarm regardless: this host broke at a
+    # reported 98% with 2.0 GB free, which was ~1.4 days of runway against
+    # ~1.2 GB/day of growth. Space warnings should lean on the runway forecast
+    # below, not just on this number.
+    usable = usage.used + usage.free
+    used_pct = round(100 * usage.used / usable) if usable else 0
     return usage.total, usage.free, used_pct
 
 
