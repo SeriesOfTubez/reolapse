@@ -12,6 +12,7 @@ import argparse
 import datetime as dt
 import json
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -23,8 +24,10 @@ import urllib3
 
 import events
 from common import (APP_ROOT, APP_VERSION, camera_daylight_config,
-                    camera_events_enabled, camera_interval_seconds, load_config,
-                    local_now, local_today, snapshots_dir, tzinfo_for, videos_dir)
+                    camera_events_enabled, camera_interval_seconds,
+                    classify_capture_failure, load_config, local_now,
+                    local_today, probe_frame_count, record_capture_miss,
+                    snapshots_dir, tzinfo_for, videos_dir)
 
 # A "night" spans midnight, so night frames are bucketed by a noon-to-noon
 # logical day (shift the timestamp back 12h). That makes one evening + the
@@ -116,13 +119,18 @@ class Conditions:
         self.tags = tags
 
         if set(self.tags) != self._known:
-            self._known = set(self.tags)
             log.info("conditions now: %s", sorted(self.tags) or "clear")
             self.log_dir.mkdir(parents=True, exist_ok=True)
             entry = {"ts": now.strftime("%Y-%m-%d %H:%M:%S"),
                      "tags": sorted(self.tags), "detail": self.tags}
             with open(self.log_dir / f"{now:%Y-%m-%d}.jsonl", "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry) + "\n")
+            # Only now is the change actually recorded. Marking it known
+            # before the write meant a failed write (a full disk) lost the
+            # change for good: the next poll saw no difference and never
+            # retried, so a storm could begin and end with nothing in the
+            # log to rebuild its event clip from.
+            self._known = set(self.tags)
 
     def interval(self, base_seconds, events_enabled=True):
         """The effective interval for one camera: shortened to the burst
@@ -272,7 +280,19 @@ def take_snapshot(cam, capture_cfg, out_root, now, quarantine=False, tags=None):
         day_dir = day_dir / "offposition"
     day_dir.mkdir(parents=True, exist_ok=True)
     path = day_dir / (now.strftime("%H%M%S") + ".jpg")
-    path.write_bytes(data)
+    # Write to a temp file beside the target and rename into place. A partial
+    # or failed write (a full disk, most obviously) then leaves nothing behind
+    # instead of a zero-byte .jpg, which ffmpeg's image2 demuxer cannot decode
+    # -- one such frame silently truncates a day's video, or kills the build
+    # outright if it happens to sort first. The .part suffix keeps the temp out
+    # of the *.jpg glob the builds read.
+    tmp = path.with_name(path.name + ".part")
+    try:
+        tmp.write_bytes(data)
+        os.replace(tmp, path)
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        raise
     return path, len(data)
 
 
@@ -327,6 +347,34 @@ def prune_old_snapshots(cfg, tz=None):
                     "not pruning %s/%s: daily video was never built", cam_dir.name, day_dir.name
                 )
                 continue
+
+            # A file existing is not proof its encode finished. A video cut
+            # short by an unreadable input frame, or left behind by a build
+            # that died, is worthless -- and the frames below it are its only
+            # source, so deleting them is irreversible.
+            #
+            # Deliberately a floor rather than a like-for-like count: with
+            # include_events off, a burst-heavy day legitimately leaves a large
+            # share of its frames out of the daily video, so demanding a
+            # matching count would refuse to prune perfectly good days and let
+            # the disk fill. Exact completeness is enforced where it can be
+            # known -- build_video verifies its own output before publishing.
+            encoded = probe_frame_count(video)
+            if encoded is None:
+                if shutil.which("ffprobe"):
+                    log.warning("not pruning %s/%s: daily video is unreadable (an "
+                                "interrupted or failed encode); rebuild it first",
+                                cam_dir.name, day_dir.name)
+                    continue
+                # No ffprobe to check with. Fall back to the old behaviour
+                # rather than never reclaiming space on a host without it.
+            else:
+                floor = max(2, int(0.1 * len(list(day_dir.glob("*.jpg")))))
+                if encoded < floor:
+                    log.warning("not pruning %s/%s: daily video holds only %d frame(s) "
+                                "-- rebuild it before these frames are removed",
+                                cam_dir.name, day_dir.name, encoded)
+                    continue
             shutil.rmtree(day_dir)
             log.info("pruned snapshots %s/%s", cam_dir.name, day_dir.name)
 
@@ -382,6 +430,12 @@ def run_once(cfg, conditions=None, windows=None, tz=None, due=None):
                     time.sleep(2)
                 else:
                     log.error("%s: snapshot failed: %s", cam["name"], msg)
+                    # Durable, unlike the log line: the journal is exactly what
+                    # stops being reliable during an incident, and a camera that
+                    # loses power should still show up in availability after.
+                    record_capture_miss(cfg, cam["name"],
+                                        classify_capture_failure(exc),
+                                        detail=msg, when=now)
 
 
 def trigger_night_build(config_path, date, camera=None):
@@ -440,7 +494,18 @@ def loop(cfg, config_path=None):
     # different intervals stay aligned to the wall clock instead of drifting.
     last_slot = {}
     while True:
-        conditions.refresh()
+        try:
+            conditions.refresh()
+        except Exception:
+            # Weather/ephemeris lookups and the conditions-log write all
+            # happen in here, and none are worth losing frames over. Left
+            # unguarded, an ENOSPC on that write propagated out of the loop
+            # and killed capture outright; systemd restarted it 30s later,
+            # it re-detected the same change and crashed again -- a restart
+            # loop for as long as the disk stayed full. Frames matter more
+            # than tags.
+            log.exception("conditions refresh failed; continuing with %s",
+                          sorted(conditions.tags) or "no tags")
         # Burst tags (storm/snow) shorten the interval; pick a burst interval
         # that divides the base one so burst frames stay clock-aligned too.
         # Resolved per camera, so a camera that ignores events keeps its own

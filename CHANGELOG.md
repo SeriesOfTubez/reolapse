@@ -6,6 +6,168 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-11
+
+### Security
+- **The container image now upgrades its base OS packages at build time,
+  closing 7 HIGH-severity `libuuid` / util-linux CVEs.** The Dockerfile
+  installed ffmpeg and tini but never upgraded what `python:3.12-alpine`
+  already shipped, so patched versions of *pre-installed* packages were only
+  picked up whenever that base image happened to be rebuilt upstream. Alpine
+  had published fixes for all seven; the image was carrying them regardless.
+
+  `libuuid` goes from **2.42.1-r0 to 2.42.3-r1**, which resolves:
+
+  | CVE | Issue |
+  |---|---|
+  | [CVE-2026-53612](https://avd.aquasec.com/nvd/cve-2026-53612) | TOCTOU in `mount` when applying post-mount ownership/mode changes |
+  | [CVE-2026-53613](https://avd.aquasec.com/nvd/cve-2026-53613) | TOCTOU in `mount` via ancestor directory swap |
+  | [CVE-2026-53614](https://avd.aquasec.com/nvd/cve-2026-53614) | SUID `mount(8)` allows `nosuid`/`noexec` bypass via `LIBMOUNT_FORCE_MOUNT2` |
+  | [CVE-2026-76642](https://avd.aquasec.com/nvd/cve-2026-76642) | A failed external mount helper still runs privileged X-mount post-hooks |
+  | [CVE-2026-78408](https://avd.aquasec.com/nvd/cve-2026-78408) | `nsenter --join-cgroup` leaks root cgroup migration authority |
+  | [CVE-2026-78409](https://avd.aquasec.com/nvd/cve-2026-78409) | `X-mount.subdir` detached-tree resolution can escape via intermediate symlinks |
+  | [CVE-2026-78410](https://avd.aquasec.com/nvd/cve-2026-78410) | Restricted bind mounts do not pin the source, allowing `X-mount.owner/group/mode` abuse |
+
+  Exploitability in this image is low — it runs as an unprivileged `USER app`
+  and never calls `mount` — but the fixes were available and the image should
+  not ship known-vulnerable packages. CVE-2026-78408 is the reason the pin is
+  `-r1` rather than `-r0`; the other six are fixed in `2.42.3-r0`.
+
+  The scan that caught this runs on every push and pull request, plus weekly,
+  precisely so CVEs disclosed *after* a commit lands still surface.
+
+### Fixed
+- **A failed snapshot no longer leaves a zero-byte JPEG behind.** Frames were
+  written straight to their final path, so any partial write — a full disk,
+  most obviously — left a 0-byte `.jpg` sitting in the day folder. Those files
+  are landmines: ffmpeg's image2 demuxer stops at the first frame it cannot
+  decode, so one of them silently truncates that day's video, and if it happens
+  to sort first the build fails outright. Snapshots now go to a temp file
+  alongside the target and are renamed into place, so a failed write leaves no
+  file at all. A single full disk in Sep 2026 left ~1,800 of these across four
+  days and cost three days of videos.
+- **A corrupt frame no longer passes as a successful build.** `build_video`
+  reported the number of frames it *fed to* ffmpeg, not the number that came
+  out — so a video truncated at a bad frame was logged as
+  `wrote ... (1053 frames, 0.4 MB)` and treated as a clean build. The encode is
+  now checked against its input count and fails loudly if it came up short.
+  Encoding also happens under a temp name and is only renamed into place once
+  verified, so a half-written `.mp4` is never visible to the UI or to pruning.
+- **One camera's bad day no longer takes out every camera after it.** An
+  unreadable frame raised straight out of `cmd_daily`, so the remaining cameras
+  were never attempted and `storage_stats.write_stats()` — which runs at the
+  very end — never ran either. That is why the Storage tab could sit frozen on
+  days-old figures: the same failure that broke the builds also stopped the
+  numbers updating. Each camera is now isolated, and the stats are written even
+  when the build fails. The build still exits non-zero if any camera failed.
+- **Snapshot pruning no longer accepts a broken video as proof of a build.**
+  `prune_old_snapshots` deleted a day's frames once its `.mp4` merely existed,
+  never checking it was usable — so a 363 KB, 0.04-second stub from a failed
+  encode was enough to authorize deleting the irreplaceable source frames. It
+  now refuses to prune behind a video that is unreadable or implausibly short.
+- **A failed conditions-log write no longer loses the event permanently.** The
+  tag set was marked as "recorded" *before* the line was written, so if the
+  write failed — a full disk, again — the next poll saw no change from what it
+  believed it had already logged and never retried. A storm could begin and end
+  with nothing in the log, leaving no way to rebuild its event clip afterwards
+  even though the frames themselves were tagged correctly.
+- **A conditions-log failure no longer kills capture.** `conditions.refresh()`
+  ran unguarded at the top of the capture loop, so an `ENOSPC` on that write
+  propagated out and terminated the process. systemd restarted it 30 seconds
+  later, it re-detected the same condition change, and crashed again — a
+  restart loop, losing frames on every cycle, for as long as the disk stayed
+  full. Weather lookups and log writes are now contained: tags are worth less
+  than frames.
+- **A truncated conditions-log line no longer breaks a whole date's events.**
+  `tag_spans` parsed the log with a bare `json.loads` per line, so one
+  half-written line — exactly what an interrupted append leaves — raised and
+  took out event building for that date entirely. Unparseable lines are now
+  skipped with a warning.
+- **Disk usage percentage now matches `df`.** It was computed as
+  `used / total`, which ignores that a filesystem's root reserve counts as
+  neither used nor free — leaving the gauge reading ~95% on a filesystem an
+  unprivileged writer could no longer write to at all.
+- **The build indicator no longer vanishes part-way through a build.** A
+  `running` status was treated as stale after an hour, measured from when the
+  build started — but a full build routinely runs longer than that, so the
+  indicator went dark for exactly the builds worth watching. Builds now
+  refresh a heartbeat as each camera finishes, and staleness is measured
+  against that.
+- **A failed build is now visible in the UI.** The header indicator simply hid
+  itself when a build failed, so builds could stay broken for days without a
+  single sign of it anywhere in the interface. It now reports the last failure
+  until a build succeeds.
+### Changed
+- **Frames are downscaled before deflicker, not after.** The filter chain ran
+  `deflicker,scale`, so the deflicker window buffered `deflicker_size` whole
+  frames at *source* resolution — ~147 MB for a 5120×1920 camera, versus ~83 MB
+  once `max_height` has been applied. On a memory-constrained host that is the
+  difference between encoding and swapping. Measured on the reference box, the
+  largest camera gained only 1.16× from a second vCPU while the two smaller
+  ones gained ~1.73×, because it was blocked on disk (78% iowait) rather than
+  CPU. Deflicker smooths exposure variation between frames, which is unaffected
+  by doing it after the resize. See the wiki's Storage & Performance page for
+  the memory-sizing guidance this produced.
+
+### Added
+- **On-demand storage refresh.** The Storage tab now has a **Refresh now**
+  button, backed by a new `POST /api/storage/refresh`. The figures were
+  previously only rewritten at the end of a successful daily build, so after a
+  disk filled, was expanded, or a build failed, the page could quote numbers
+  that were days old.
+- **Low-storage warning banner.** A banner appears when free space falls below
+  10%, below 5%, or is effectively gone, and also when the runway forecast
+  drops under a week. Thresholds are on *free* space and runway rather than the
+  used percentage alone: this project's own host broke at a reported "98% full"
+  — which was 2 GB free against ~1.2 GB/day of growth, about a day of runway,
+  and read as perfectly calm right up until writes started failing. The banner
+  also says so when the figures behind it are stale.
+- **Build progress in the header indicator.** It now reads
+  `Building daily videos — 2 of 3 · front-yard · 640/785 (82%)`. The camera
+  counter gives the coarse position; within each video, ffmpeg reports its own
+  encoded-frame count via `-progress`, which is compared against the known
+  input count for a real percentage. Reports are throttled to every 5 seconds,
+  and the whole thing degrades quietly — if no progress arrives, the indicator
+  falls back to the plain "Building..." message it showed before.
+- **Camera availability reporting.** A new **Cameras** tab reports, per camera
+  per day, how many frames were captured against how many were scheduled, where
+  the gaps fell (with a midnight-to-midnight strip showing the time of day), the
+  longest outage, and why frames were missed. Failed snapshots are now recorded
+  to a rolling `capture_misses.jsonl` with a classified reason — a camera that
+  loses power and a disk that fills both produce a missing frame, and conflating
+  them turns "the disk is full" into "all three cameras went offline at once".
+
+  The numbers are reconstructed from the frames on disk rather than from a
+  running counter, so history that predates this feature still reports and a
+  restarted capture process cannot zero them. Two details that matter: the
+  denominator is each camera's own scheduled ticks (its interval, gated on its
+  own capture window) rather than wall-clock, or a night camera would read as
+  permanently 50% down; and gaps are bounded by that schedule, without which an
+  outage running to the end of the day is invisible — there is no later frame
+  to measure it against, which is precisely the shape a full disk produces.
+  Run against this project's own host it reconstructs a real incident unaided:
+  67% on 09/08 with the gap starting at 16:08, 49% on 09/09, and a 00:00–06:51
+  gap on 09/10.
+- **Build or rebuild a day from the UI.** The Cameras tab takes a date and an
+  optional camera; the player gains a **rebuild** button for daily videos. New
+  `POST /api/build`, gated by the Config passcode, which validates the date,
+  refuses a future one, refuses an unknown camera, and returns 409 if a build is
+  already running. Deliberately not routed through `reolapse-daily.service`:
+  that unit runs a bare `daily` with no `--date`, which is exactly the case that
+  cannot rebuild a past day. The web process already runs as the same user out
+  of the same venv, so it spawns the build directly — no sudo grant, nothing
+  added to the sudoers file. Builds are detached, since they outlive their
+  request by an order of magnitude, and report through the header indicator like
+  any other build.
+- **Storm and snow sensitivity tiers now say what they trade away.** The slider
+  showed only the tier name and its raw numbers (`Conservative — CAPE 1500 J/kg
+  · rain 0.5 mm · gusts 80 km/h`), which doesn't tell you what moving it costs.
+  Each tier now carries a one-line plain-English description underneath.
+- **Dismissable banners.** The update notice and the new storage warning can
+  both be dismissed. Dismissals are keyed to the situation — the version, or
+  the severity tier — so they come back when something actually changes rather
+  than being silenced permanently by one click.
+
 ## [0.4.1] - 2026-08-18
 
 ### Fixed
@@ -300,7 +462,8 @@ Initial public release.
 - Running version reported in the web UI header, the API, service logs, and the
   Docker image.
 
-[Unreleased]: https://github.com/SeriesOfTubez/reolapse/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/SeriesOfTubez/reolapse/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/SeriesOfTubez/reolapse/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/SeriesOfTubez/reolapse/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/SeriesOfTubez/reolapse/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/SeriesOfTubez/reolapse/compare/v0.2.0...v0.3.0
