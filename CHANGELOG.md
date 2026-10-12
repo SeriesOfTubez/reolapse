@@ -6,6 +6,25 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Yearly videos stopped updating after the full-disk event.** The 0-byte
+  snapshots that event left behind had already been copied into the permanent
+  yearly frame archive, and since 0.5.0's truncated-encode check, a single one
+  fails the whole yearly encode -- every week, for good, because archive
+  frames are never pruned. Builds now skip empty / non-JPEG frames with a
+  warning instead, both from the yearly archive and from a day's snapshots.
+- **One camera's failed yearly build no longer skips every camera after it.**
+  `yearly` is isolated per camera the way `daily` already was, and still exits
+  non-zero naming the cameras that failed.
+- Yearly frames are archived via a temp file and rename, so a copy that hits a
+  full disk leaves nothing behind rather than a permanent 0-byte frame.
+
+### Added
+- **Rebuild button on yearly videos.** The player's rebuild button previously
+  existed only for daily videos; yearly videos can now be re-rendered from the
+  web UI (`POST /api/build` with `{"kind": "yearly", "year": N}`). Yearly
+  builds also now report progress through the header build indicator.
+
 ## [0.5.0] - 2026-09-11
 
 ### Security
