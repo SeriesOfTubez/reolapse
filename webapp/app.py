@@ -716,28 +716,47 @@ def create_app(cfg, config_path=None):
     @app.post("/api/build")
     @require_config_auth
     def start_build():
-        """Start a daily build for one date, detached.
+        """Start a daily build for one date, or a yearly build for one year,
+        detached.
 
-        Deliberately not routed through reolapse-daily.service: that unit runs
+        Deliberately not routed through the systemd units: reolapse-daily runs
         a bare `daily` with no --date, which is exactly the case that cannot
-        rebuild a past day. This process already runs as the same user out of
-        the same venv, so it can spawn the build directly -- no sudo grant, and
-        nothing added to the sudoers file.
+        rebuild a past day, and reolapse-yearly only on its weekly timer. This
+        process already runs as the same user out of the same venv, so it can
+        spawn the build directly -- no sudo grant, and nothing added to the
+        sudoers file.
 
         Detached because a build outlives its request by an order of magnitude;
         progress is reported through build_status.json like any other build.
         """
         payload = request.get_json(silent=True) or {}
-        raw_date = str(payload.get("date") or "").strip()
+        kind = str(payload.get("kind") or "daily").strip()
         camera = (str(payload.get("camera") or "")).strip() or None
         cfg = state["cfg"]
+        today = local_today(resolved_tz())
 
-        try:
-            date = dt.date.fromisoformat(raw_date)
-        except ValueError:
-            return jsonify({"error": "date must be YYYY-MM-DD"}), 400
-        if date > local_today(resolved_tz()):
-            return jsonify({"error": "that date is in the future"}), 400
+        if kind == "daily":
+            try:
+                date = dt.date.fromisoformat(str(payload.get("date") or "").strip())
+            except ValueError:
+                return jsonify({"error": "date must be YYYY-MM-DD"}), 400
+            if date > today:
+                return jsonify({"error": "that date is in the future"}), 400
+            label = date.isoformat()
+            args = ["daily", "--date", label]
+        elif kind == "yearly":
+            try:
+                year = int(payload.get("year"))
+            except (TypeError, ValueError):
+                return jsonify({"error": "year must be a number"}), 400
+            if not 2000 <= year <= today.year:
+                return jsonify({"error": "year out of range"}), 400
+            label = str(year)
+            # --force: someone asking for this year by hand has already
+            # decided it is worth rendering, however few days it holds.
+            args = ["yearly", "--year", label, "--force"]
+        else:
+            return jsonify({"error": "kind must be daily or yearly"}), 400
         names = [c["name"] for c in cfg.get("cameras") or []]
         if camera and camera not in names:
             return jsonify({"error": f"unknown camera: {camera}"}), 400
@@ -750,8 +769,7 @@ def create_app(cfg, config_path=None):
             return jsonify({"error": "a build is already running",
                             "status": status}), 409
 
-        cmd = [sys.executable, str(APP_ROOT / "build_timelapse.py"),
-               "daily", "--date", date.isoformat()]
+        cmd = [sys.executable, str(APP_ROOT / "build_timelapse.py"), *args]
         if camera:
             cmd += ["--camera", camera]
         if state["path"]:
@@ -761,10 +779,13 @@ def create_app(cfg, config_path=None):
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                              start_new_session=True)
         except Exception as exc:
-            log.exception("failed to launch build for %s", date)
+            log.exception("failed to launch %s build for %s", kind, label)
             return jsonify({"error": f"could not start the build: {exc}"}), 500
-        log.info("manual build started for %s (%s)", date, camera or "all cameras")
-        return jsonify({"started": True, "date": date.isoformat(), "camera": camera})
+        log.info("manual %s build started for %s (%s)", kind, label,
+                 camera or "all cameras")
+        return jsonify({"started": True, "kind": kind, "label": label,
+                        "date": label if kind == "daily" else None,
+                        "camera": camera})
 
     @app.get("/api/config")
     @require_config_auth

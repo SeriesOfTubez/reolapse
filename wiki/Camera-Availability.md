@@ -122,6 +122,11 @@ Things worth knowing:
   failed or truncated rebuild leaves the old file untouched.
 - **Gated by the Config-page passcode** when one is set — see
   [Security](Security).
-- Yearly and event videos have no rebuild button, because they are built by
-  different subcommands (`build_timelapse.py yearly` / `events`). Yearly videos
-  are always rebuildable from the frame archive, which is never pruned.
+- **Yearly videos have a rebuild button too**, which re-renders that camera's
+  year from the frame archive. That archive is never pruned, so a yearly video
+  is always rebuildable, and the minimum-days threshold
+  (`yearly.min_days_before_render`) is skipped for a build you ask for by hand.
+  Empty or unreadable frames in the archive are skipped with a warning rather
+  than failing the build.
+- Event videos have no rebuild button, because they are built per tag span by
+  a different subcommand (`build_timelapse.py events`).

@@ -220,6 +220,34 @@ def build_video(frames, out_path: Path, *, fps, crf, deflicker_size, max_height=
     log.info("wrote %s (%d frames, %.1f MB)", out_path, len(frames), size_mb)
 
 
+def usable_frame(path) -> bool:
+    """False for a frame ffmpeg cannot possibly decode: empty, or not a JPEG.
+
+    The image2 demuxer stops at the first such frame, so one of these in a
+    build's input fails the whole encode. A disk that filled up before
+    snapshots were written atomically left 0-byte frames behind, and copies of
+    them reached the permanent yearly archive -- where, unlike a day's
+    snapshots, nothing ever ages them out.
+    """
+    try:
+        with open(path, "rb") as f:
+            return f.read(2) == b"\xff\xd8"
+    except OSError:
+        return False
+
+
+def usable_frames(frames, what):
+    """Drop unusable frames with one warning, so they cost a frame, not a build."""
+    good, bad = [], []
+    for f in frames:
+        (good if usable_frame(f) else bad).append(f)
+    if bad:
+        bad = [f.name for f in bad]
+        log.warning("%s: skipping %d unreadable frame(s) (empty or not a JPEG): %s%s",
+                    what, len(bad), ", ".join(bad[:5]), " ..." if len(bad) > 5 else "")
+    return good
+
+
 def select_evenly(frames, n):
     """N frames evenly spaced across the list (chunk midpoints)."""
     if n <= 0 or n >= len(frames):
@@ -239,7 +267,16 @@ def archive_yearly_frames(cfg, cam_name, date, frames):
     for old in out_dir.glob(f"{day}*.jpg"):
         old.unlink()
     for src in picks:
-        shutil.copy2(src, out_dir / f"{day}_{src.stem}.jpg")
+        # Copy under a temp name and rename in, as capture does: a copy that
+        # dies on a full disk must leave nothing, not a 0-byte .jpg that sits
+        # in the archive forever. The suffix keeps it out of the *.jpg globs.
+        dst = out_dir / f"{day}_{src.stem}.jpg"
+        part = dst.with_name(dst.name + ".part")
+        try:
+            shutil.copy2(src, part)
+            os.replace(part, dst)
+        finally:
+            part.unlink(missing_ok=True)
     log.info("%s: archived %d yearly frame(s) for %s", cam_name, len(picks), date)
 
 
@@ -396,7 +433,9 @@ def build_camera_day(cfg, cam, date, season, progress=None):
     Split out of cmd_daily so each camera can be isolated behind its own
     try/except -- see the caller.
     """
-    frames = day_frames(cfg, cam["name"], date)
+    # Filtered once here so neither the daily video nor the yearly archive
+    # ever sees a frame ffmpeg cannot read.
+    frames = usable_frames(day_frames(cfg, cam["name"], date), f"{cam['name']} {date}")
     if len(frames) < MIN_FRAMES:
         log.warning("%s: only %d frame(s) for %s, skipping", cam["name"], len(frames), date)
         return
@@ -755,34 +794,61 @@ def cmd_yearly(cfg, args):
     # days is a ~2-second clip that's more confusing than useful. Wait until
     # this many distinct days have been archived (0 = render as soon as there
     # are any frames). --force overrides it for an intentional early build.
+    failed = []
+    with build_status(cfg, "yearly", year) as heartbeat:
+        cameras = selected_cameras(cfg, args.camera)
+        for index, cam in enumerate(cameras, start=1):
+            def beat(done=None, total=None, _cam=cam, _index=index):
+                detail = f"{_index} of {len(cameras)} · {_cam['name']}"
+                if done is not None and total:
+                    detail += f" · {done}/{total} ({round(100 * done / total)}%)"
+                heartbeat(detail)
+
+            # Isolated per camera for the same reason as cmd_daily: one
+            # camera's bad archive must not cost every camera after it.
+            try:
+                beat()
+                build_camera_year(cfg, cam, year, args, progress=beat)
+            except Exception:
+                log.exception("%s: yearly build failed for %s (continuing with "
+                              "the remaining cameras)", cam["name"], year)
+                failed.append(cam["name"])
+        if failed:
+            raise RuntimeError("yearly build failed for: " + ", ".join(failed))
+
+
+def build_camera_year(cfg, cam, year, args, progress=None):
     min_days = cfg["yearly"].get("min_days_before_render", 30)
-    for cam in selected_cameras(cfg, args.camera):
-        frame_dir = yearly_frames_dir(cfg) / cam["name"] / str(year)
-        archived = sorted(frame_dir.glob("*.jpg")) if frame_dir.is_dir() else []
-        days_archived = len({f.stem[:5] for f in archived})  # distinct MM-DD
-        if not getattr(args, "force", False) and days_archived < min_days:
-            log.info("%s: %d day(s) of yearly frames for %s — holding off until %d "
-                     "(yearly.min_days_before_render); pass --force to build now",
-                     cam["name"], days_archived, year, min_days)
-            continue
-        frames = select_video_frames(archived, cfg["yearly"])
-        if len(frames) < MIN_FRAMES:
-            log.warning("%s: only %d yearly frame(s) for %s, skipping — "
-                        "run daily builds first", cam["name"], len(frames), year)
-            continue
-        y = cfg["yearly"]
-        out = videos_dir(cfg) / cam["name"] / "yearly" / f"{year}.mp4"
-        build_video(
-            frames, out,
-            fps=y["fps"], crf=y["crf"],
-            deflicker_size=y.get("deflicker_size", 0),
-            max_height=cfg["daily_video"].get("max_height", 0),
-            preset=y.get("preset", "medium"),
-        )
-        try:
-            prune_yearly_videos(cfg, cam["name"])
-        except Exception:
-            log.exception("%s: yearly video retention pruning failed", cam["name"])
+    frame_dir = yearly_frames_dir(cfg) / cam["name"] / str(year)
+    archived = sorted(frame_dir.glob("*.jpg")) if frame_dir.is_dir() else []
+    # Filtered before selection, not after, so a day with a bad frame still
+    # contributes its full share from the frames around it.
+    archived = usable_frames(archived, f"{cam['name']} {year} yearly archive")
+    days_archived = len({f.stem[:5] for f in archived})  # distinct MM-DD
+    if not getattr(args, "force", False) and days_archived < min_days:
+        log.info("%s: %d day(s) of yearly frames for %s — holding off until %d "
+                 "(yearly.min_days_before_render); pass --force to build now",
+                 cam["name"], days_archived, year, min_days)
+        return
+    frames = select_video_frames(archived, cfg["yearly"])
+    if len(frames) < MIN_FRAMES:
+        log.warning("%s: only %d yearly frame(s) for %s, skipping — "
+                    "run daily builds first", cam["name"], len(frames), year)
+        return
+    y = cfg["yearly"]
+    out = videos_dir(cfg) / cam["name"] / "yearly" / f"{year}.mp4"
+    build_video(
+        frames, out,
+        fps=y["fps"], crf=y["crf"],
+        deflicker_size=y.get("deflicker_size", 0),
+        max_height=cfg["daily_video"].get("max_height", 0),
+        preset=y.get("preset", "medium"),
+        progress=progress,
+    )
+    try:
+        prune_yearly_videos(cfg, cam["name"])
+    except Exception:
+        log.exception("%s: yearly video retention pruning failed", cam["name"])
 
 
 def build_timezone(cfg):

@@ -1149,6 +1149,7 @@ function play(v, itemEl) {
           `<button class="speed${s === 1 ? " active" : ""}" data-speed="${s}">${s}&times;</button>`).join("")}
         <a class="dl" href="${v.url}" download>download</a>
         ${v.type === "daily" ? `<button class="rebuild" title="Re-encode this day from the frames still on disk">rebuild</button>` : ""}
+        ${v.type === "yearly" ? `<button class="rebuild" title="Re-encode this year from its archived frames">rebuild</button>` : ""}
         <button class="del" title="Delete this video from disk">delete</button>
       </div>
     </div>`;
@@ -1159,15 +1160,16 @@ function play(v, itemEl) {
       b.classList.add("active");
     };
   });
-  // Daily videos carry their date as the label, which is exactly what the
-  // build takes. Yearly and events are built by different subcommands, so they
-  // get no button rather than a misleading one.
+  // Daily videos carry their date as the label and yearly videos their year,
+  // which is exactly what each build takes. Event videos are built per tag
+  // span, so they get no button rather than a misleading one.
   const rebuildBtn = area.querySelector(".rebuild");
   if (rebuildBtn) {
     rebuildBtn.onclick = () => {
-      if (!confirm(`Rebuild ${v.camera} ${v.label} from the frames still on disk? `
+      const source = v.type === "yearly" ? "its archived frames" : "the frames still on disk";
+      if (!confirm(`Rebuild ${v.camera} ${v.label} from ${source}? `
                    + `The existing video is only replaced once the new encode is verified.`)) return;
-      startBuild(v.label, v.camera, rebuildBtn);
+      startBuild(v.label, v.camera, rebuildBtn, v.type);
     };
   }
 
@@ -1540,15 +1542,19 @@ function fmtDuration(sec) {
 }
 
 // Shared by the Cameras view and the Rebuild button in the player.
-async function startBuild(date, camera, btn) {
+// `label` is the date for a daily build, the year for a yearly one.
+async function startBuild(label, camera, btn, kind = "daily") {
   const original = btn ? btn.textContent : "";
   if (btn) { btn.disabled = true; btn.textContent = "Starting…"; }
+  const body = kind === "yearly"
+    ? {kind: "yearly", year: Number(label), camera: camera || null}
+    : {kind: "daily", date: label, camera: camera || null};
   let res, data;
   try {
     res = await fetch("/api/build", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({date: date, camera: camera || null}),
+      body: JSON.stringify(body),
     });
     data = await res.json().catch(() => ({}));
   } catch (e) {
