@@ -6,6 +6,8 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-12
+
 ### Fixed
 - **Yearly videos stopped updating after the full-disk event.** The 0-byte
   snapshots that event left behind had already been copied into the permanent
@@ -481,7 +483,8 @@ Initial public release.
 - Running version reported in the web UI header, the API, service logs, and the
   Docker image.
 
-[Unreleased]: https://github.com/SeriesOfTubez/reolapse/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/SeriesOfTubez/reolapse/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/SeriesOfTubez/reolapse/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/SeriesOfTubez/reolapse/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/SeriesOfTubez/reolapse/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/SeriesOfTubez/reolapse/compare/v0.3.0...v0.4.0
