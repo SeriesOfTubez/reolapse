@@ -1,0 +1,29 @@
+version: 2
+updates:
+  # requirements.txt uses >= floors, so this mostly surfaces security alerts
+  # rather than version bumps; pinned transitive deps would change that.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Base image (python:3.12-alpine). Minor-version bumps are ignored so the
+  # Python version only moves when we choose to.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: python
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
