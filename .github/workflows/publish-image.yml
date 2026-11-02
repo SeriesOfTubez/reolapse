@@ -18,16 +18,16 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up QEMU (for arm64 emulation)
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -35,7 +35,7 @@ jobs:
 
       - name: Derive image tags
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}
           # No implicit "latest"; we add it explicitly for tags only, so a
@@ -53,7 +53,7 @@ jobs:
       # the same alpine + pip packages, so scanning amd64 covers the CVE surface
       # — matching the image scan in security.yml.
       - name: Build amd64 image for scanning
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64
@@ -67,7 +67,7 @@ jobs:
         run: trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 reolapse:scan
 
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
