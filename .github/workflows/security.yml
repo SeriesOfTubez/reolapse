@@ -4,6 +4,8 @@ name: security
 # SCA + IaC + container image (Trivy). Weekly schedule catches CVEs disclosed
 # after a commit lands. Vulnerability gates use --ignore-unfixed so the build
 # only fails on issues you can actually act on, not unfixable base-image CVEs.
+# Scanner versions are pinned so a compromised or broken upstream release can't
+# silently change what CI runs; bump them deliberately.
 
 on:
   push:
@@ -15,6 +17,10 @@ on:
 
 permissions:
   contents: read
+
+env:
+  GITLEAKS_VERSION: v8.30.1
+  TRIVY_VERSION: v0.76.1
 
 concurrency:
   group: security-${{ github.ref }}
@@ -30,7 +36,7 @@ jobs:
           fetch-depth: 0   # full history so every commit is scanned
       - name: Gitleaks
         run: |
-          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:latest \
+          docker run --rm -v "$PWD:/repo" "ghcr.io/gitleaks/gitleaks:${GITLEAKS_VERSION}" \
             detect --source=/repo --redact --exit-code 1
 
   sast:
@@ -53,9 +59,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Trivy
-        run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+        run: curl -sfL "https://raw.githubusercontent.com/aquasecurity/trivy/${TRIVY_VERSION}/contrib/install.sh" | sh -s -- -b /usr/local/bin "${TRIVY_VERSION}"
+      # requirements.txt uses >= floors, which trivy fs can't resolve (it only
+      # reads == pins, so scanning the repo finds nothing). Install what pip
+      # actually resolves today and scan the installed packages instead.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Resolve dependencies
+        run: pip install --target "$RUNNER_TEMP/deps" -r requirements.txt
       - name: Dependency vulnerabilities (SCA)
-        run: trivy fs --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --skip-dirs venv --skip-dirs data .
+        run: |
+          trivy rootfs --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --list-all-pkgs \
+            --format json --output "$RUNNER_TEMP/sca.json" "$RUNNER_TEMP/deps" || status=$?
+          trivy convert --format table "$RUNNER_TEMP/sca.json"
+          # Fail if nothing was scanned, so this step can't silently go vacuous again.
+          count=$(jq '[.Results[]? | select(.Type == "python-pkg") | .Packages[]?] | length' "$RUNNER_TEMP/sca.json")
+          echo "Python packages scanned: $count"
+          [ "$count" -gt 0 ] || { echo "::error::SCA scanned no Python packages"; exit 1; }
+          exit "${status:-0}"
       - name: IaC / Dockerfile misconfig
         run: trivy config --severity MEDIUM,HIGH,CRITICAL --exit-code 1 .
       - name: Build image
