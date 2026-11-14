@@ -31,7 +31,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: VERSION must match the tag
         run: |
@@ -66,7 +66,7 @@ jobs:
       # ref: master is required — a wiki repo's default branch is master and
       # has no vX.Y.Z tag, so checkout's default (github.ref) would fail.
       - name: Check out the wiki repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ github.repository }}.wiki
           ref: master

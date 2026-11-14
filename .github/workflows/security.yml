@@ -31,7 +31,7 @@ jobs:
     name: Secrets (Gitleaks)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # full history so every commit is scanned
       - name: Gitleaks
@@ -43,8 +43,8 @@ jobs:
     name: SAST (Semgrep)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install semgrep
@@ -57,13 +57,13 @@ jobs:
     name: SCA, IaC & image (Trivy)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Trivy
         run: curl -sfL "https://raw.githubusercontent.com/aquasecurity/trivy/${TRIVY_VERSION}/contrib/install.sh" | sh -s -- -b /usr/local/bin "${TRIVY_VERSION}"
       # requirements.txt uses >= floors, which trivy fs can't resolve (it only
       # reads == pins, so scanning the repo finds nothing). Install what pip
       # actually resolves today and scan the installed packages instead.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Resolve dependencies
