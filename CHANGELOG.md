@@ -6,6 +6,22 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Videos from high-resolution cameras stuttered, skipped minutes, or stalled
+  partway in the browser.** The frames and the encodes were fine; the bitrate
+  wasn't. CRF alone put a 5120×1920 camera at 100–160 Mbps, more than the web
+  UI can stream, so playback dropped frames (daily videos looked like they
+  skipped minutes) or stopped (a yearly video looked like it ended early).
+  Encodes are now capped at 30 Mbps by default.
+
+### Added
+- **Video quality slider** on the Config page: Compact (720p, 8 Mbps),
+  Balanced (1080p, 20 Mbps), High (1440p, 30 Mbps, default) or Original (full
+  resolution, uncapped). It sets `daily_video.max_height` and the new
+  `daily_video.max_bitrate_mbps`, which apply to daily, yearly and event
+  videos. Replaces the raw "Max height" field. Existing videos keep their old
+  encode until rebuilt.
+
 ## [0.5.1] - 2026-10-12
 
 ### Fixed

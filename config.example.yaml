@@ -141,6 +141,13 @@ daily_video:
                               # smaller file at the same crf, more CPU time.
   deflicker_size: 10          # frames in the deflicker averaging window; 0 disables
   max_height: 1440            # downscale taller sources; 0 = keep original height
+  max_bitrate_mbps: 30        # cap on video bitrate; 0 = uncapped (CRF alone).
+                              # Without it a high-resolution camera renders at
+                              # 100+ Mbps, more than the web UI can stream
+                              # smoothly. Absent = 30. max_height and this one
+                              # also apply to yearly and event videos, and are
+                              # set together by the Config page's Video quality
+                              # slider (Compact/Balanced/High/Original).
   retention_days: 0           # delete a camera's daily .mp4 this many days after
                               # its date; 0 = keep forever. Unlike snapshots, a
                               # pruned daily video is NOT re-buildable — its

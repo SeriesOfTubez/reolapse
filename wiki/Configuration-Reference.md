@@ -19,6 +19,8 @@ not: reference them as `${VAR}` and put the values in `.env`. Highlights:
 | `capture.daylight_window` | Capture only around actual sunrise/sunset instead of a fixed clock window — see [Night capture & IR cameras](PTZ-and-Night-Capture#night-capture--ir-cameras) |
 | `storage.keep_snapshots_days` | Retention for raw frames after their video builds |
 | `daily_video.deflicker_size` | Deflicker window; `0` disables |
+| `daily_video.max_height` | Downscale sources taller than this (px); `0` = original resolution. Also applies to yearly and event videos |
+| `daily_video.max_bitrate_mbps` | Bitrate cap in Mbps (default `30`); `0` = uncapped. Also applies to yearly and event videos. Set together with `max_height` by the Config page's **Video quality** slider: Compact (720p, 8), Balanced (1080p, 20), High (1440p, 30), Original (full resolution, uncapped) |
 | `daily_video.retention_days` | Delete a daily video this many days after its date; `0` = forever |
 | `daily_video.include_events` | Weave storm/snow **burst** frames into the daily video (default `false`) — see [Event frames in the daily video](Weather-and-Storm-Detection#event-frames-in-the-daily-video) |
 | `yearly.min_days_before_render` | Wait until this many days are archived before rendering the yearly video (default 30); `0` renders as soon as any frames exist, `yearly --force` overrides once |
