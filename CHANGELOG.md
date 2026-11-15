@@ -6,6 +6,8 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-15
+
 ### Fixed
 - **Videos from high-resolution cameras stuttered, skipped minutes, or stalled
   partway in the browser.** The frames and the encodes were fine; the bitrate
@@ -21,6 +23,26 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `daily_video.max_bitrate_mbps`, which apply to daily, yearly and event
   videos. Replaces the raw "Max height" field. Existing videos keep their old
   encode until rebuilt.
+- **Dependabot** watches pip packages, GitHub Actions and the Docker base image
+  weekly; Dependabot alerts, security updates, secret scanning and push
+  protection are enabled on the repository.
+
+### Changed
+- Minimum dependency versions raised to current releases (requests 2.34.2,
+  PyYAML 6.0.3, Flask 3.1.3, python-dotenv 1.2.4, skyfield 1.55,
+  tzdata 2026.6).
+- GitHub Actions updated to their current major versions (checkout v7,
+  setup-python v7, docker/* actions), which run on Node 24.
+
+### Security
+- **The CI dependency scan was not scanning anything.** `trivy fs` only reads
+  exact `==` pins from `requirements.txt`, and this project's are `>=`
+  floors, so the step found zero packages and always passed. CI now installs
+  the dependencies and scans what pip actually resolved, and fails if that
+  finds no packages. (The container image scan did cover these packages, so
+  shipped images were checked throughout.)
+- Gitleaks and Trivy are pinned to exact versions in CI instead of tracking
+  `latest`/`main`.
 
 ## [0.5.1] - 2026-10-12
 
@@ -499,7 +521,8 @@ Initial public release.
 - Running version reported in the web UI header, the API, service logs, and the
   Docker image.
 
-[Unreleased]: https://github.com/SeriesOfTubez/reolapse/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/SeriesOfTubez/reolapse/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/SeriesOfTubez/reolapse/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/SeriesOfTubez/reolapse/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/SeriesOfTubez/reolapse/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/SeriesOfTubez/reolapse/compare/v0.4.0...v0.4.1
