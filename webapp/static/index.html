@@ -1776,6 +1776,25 @@ const SNOW_SENSITIVITY_PRESETS = [
    values: {"events.snow_cm_min": 0.0}},
 ];
 
+// Video quality slider presets (see sensitivityGroup()). Lowest -> highest.
+// Applies to daily, yearly and event videos alike. "High" is the shipped
+// default (config.example.yaml); a config with neither key set renders as
+// Custom, since the build then keeps full resolution with a 30 Mbps cap.
+const VIDEO_QUALITY_PRESETS = [
+  {name: "Compact",
+   blurb: "Smallest files and the easiest to stream, e.g. over Wi-Fi or a remote connection. Fine detail is softer.",
+   values: {"daily_video.max_height": 720, "daily_video.max_bitrate_mbps": 8}},
+  {name: "Balanced",
+   blurb: "Full HD. Plays smoothly almost anywhere at a fraction of the disk space.",
+   values: {"daily_video.max_height": 1080, "daily_video.max_bitrate_mbps": 20}},
+  {name: "High",
+   blurb: "Sharp enough for a large screen while still streaming smoothly on a home network.",
+   values: {"daily_video.max_height": 1440, "daily_video.max_bitrate_mbps": 30}},
+  {name: "Original",
+   blurb: "Full camera resolution, no bitrate cap. Largest files, and high-resolution cameras can stutter or stall when played in the browser.",
+   values: {"daily_video.max_height": 0, "daily_video.max_bitrate_mbps": 0}},
+];
+
 async function renderConfig() {
   document.getElementById("sidebar").innerHTML = "";
   const area = document.getElementById("player-area");
@@ -2828,10 +2847,21 @@ function buildDailyVideoSection() {
     + "changing cloud cover). Larger windows smooth more but can blur fast lighting changes; 0 disables "
     + "deflickering entirely.",
     numberField("daily_video.deflicker_size", {default: 10})));
-  sec.appendChild(fieldRow("Max height (px)", "Downscales the video if the source snapshots are taller than "
-    + "this, preserving aspect ratio — reduces file size and encode time for high-resolution cameras. 0 keeps "
-    + "the original snapshot resolution untouched.",
-    numberField("daily_video.max_height", {default: 0})));
+  sec.appendChild(sensitivityGroup({
+    title: "Video quality",
+    intro: "Resolution and streaming bitrate for every video ReoLapse renders — daily, yearly and event "
+      + "videos. Takes effect from the next build; rebuild a video to apply it to one that already exists.",
+    presets: VIDEO_QUALITY_PRESETS,
+    defaultName: "High",
+    // What the build uses for a key that isn't in config.yaml.
+    defaults: {"daily_video.max_height": 0, "daily_video.max_bitrate_mbps": 30},
+    describe: v => {
+      const h = Number(v["daily_video.max_height"]);
+      const b = Number(v["daily_video.max_bitrate_mbps"]);
+      return `${h ? h + "p" : "full resolution"} · ${b ? "up to " + b + " Mbps" : "no bitrate cap"}`;
+    },
+    rows: [],
+  }));
   sec.appendChild(fieldRow("Retention (days)", "Deletes a camera's daily video this many days after its date. "
     + "Unlike snapshots, a pruned daily video can't be rebuilt later — by the time it's pruned, its source "
     + "frames are normally already gone too (see Keep snapshots above). 0 keeps every daily video forever.",
@@ -2892,6 +2922,10 @@ function buildYearlySection() {
 // opts: {
 //   title, intro,               // subsection heading + shared intro hint
 //   presets: [{name, values: {"cfg.path": number, ...}}],  // Conservative -> Aggressive
+//   defaultName,                // tier used as the no-match position; "Balanced" if omitted
+//   defaults: {"cfg.path": n},  // optional: what an absent key means, when that
+//                               // isn't the default tier's value (i.e. what the
+//                               // backend falls back to)
 //   describe: (values) => string,  // human-readable summary of a values object,
 //                                  // e.g. "CAPE 800 J/kg · rain 0.1 mm · gusts 60 km/h"
 //   rows: [{path, row}],        // each path's fieldRow() <div>, in any order
@@ -2913,10 +2947,12 @@ function sensitivityGroup(opts) {
     box.appendChild(intro);
   }
 
-  // Balanced is the deterministic "no exact match" fallback position (never
-  // a nearest-tier guess) and also supplies cfgGet()'s default for each path
-  // — i.e. "the shipped default" a path reads as when the key is absent.
-  const balancedIndex = opts.presets.findIndex(p => p.name === "Balanced");
+  // The default tier (Balanced unless opts.defaultName says otherwise) is the
+  // deterministic "no exact match" fallback position (never a nearest-tier
+  // guess) and also supplies cfgGet()'s default for each path not covered by
+  // opts.defaults — i.e. "the shipped default" a path reads as when absent.
+  const defaultName = opts.defaultName || "Balanced";
+  const defaultIndex = opts.presets.findIndex(p => p.name === defaultName);
   const paths = Object.keys(opts.presets[0].values);
 
   const slider = document.createElement("input");
@@ -2940,7 +2976,9 @@ function sensitivityGroup(opts) {
   function currentValues() {
     const values = {};
     paths.forEach(path => {
-      values[path] = cfgGet(path, opts.presets[balancedIndex].values[path]);
+      const dflt = opts.defaults && path in opts.defaults
+        ? opts.defaults[path] : opts.presets[defaultIndex].values[path];
+      values[path] = cfgGet(path, dflt);
     });
     return values;
   }
@@ -2955,9 +2993,9 @@ function sensitivityGroup(opts) {
       blurb.textContent = opts.presets[idx].blurb || "";
       box.classList.remove("is-custom");
     } else {
-      slider.value = String(balancedIndex);
+      slider.value = String(defaultIndex);
       caption.textContent = `Custom — ${opts.describe(values)}`;
-      blurb.textContent = "Hand-tuned values — the slider shows Balanced as a reference point.";
+      blurb.textContent = `Hand-tuned values — the slider shows ${defaultName} as a reference point.`;
       box.classList.add("is-custom");
     }
   }

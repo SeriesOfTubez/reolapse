@@ -123,12 +123,14 @@ def run_ffmpeg(cmd, total=None, progress=None, interval=5.0):
         raise subprocess.CalledProcessError(rc, cmd)
 
 
+DEFAULT_MAX_BITRATE_MBPS = 30
+
 X264_PRESETS = ("ultrafast", "superfast", "veryfast", "faster", "fast",
                 "medium", "slow", "slower", "veryslow")
 
 
 def build_video(frames, out_path: Path, *, fps, crf, deflicker_size, max_height=0,
-                metadata=None, preset="medium", progress=None):
+                max_bitrate_mbps=0, metadata=None, preset="medium", progress=None):
     """Encode an ordered list of JPEGs into an mp4.
 
     Frames are hardlinked (copy fallback) into a temp dir as a numbered
@@ -147,6 +149,11 @@ def build_video(frames, out_path: Path, *, fps, crf, deflicker_size, max_height=
     more CPU time. `medium` is ffmpeg's own default and this project's
     long-standing behavior; falls back to it if given anything not in
     X264_PRESETS rather than passing a bad value through to ffmpeg.
+
+    `max_bitrate_mbps` caps the bitrate (0 = uncapped, CRF alone decides).
+    Timelapse frames change everywhere at once -- clouds, foliage, light -- so
+    CRF alone puts a high-resolution camera at 100+ Mbps, far more than the
+    web UI can stream to a browser without stalling and dropping frames.
     """
     if preset not in X264_PRESETS:
         log.warning("unknown preset %r, falling back to medium", preset)
@@ -182,6 +189,11 @@ def build_video(frames, out_path: Path, *, fps, crf, deflicker_size, max_height=
             "-vf", ",".join(filters),
             "-c:v", "libx264", "-preset", preset, "-crf", str(crf),
         ]
+        if max_bitrate_mbps and max_bitrate_mbps > 0:
+            # bufsize at 2x maxrate: lets a busy stretch borrow from quiet
+            # ones while keeping the average a browser has to stream bounded.
+            cmd += ["-maxrate", f"{max_bitrate_mbps}M",
+                    "-bufsize", f"{max_bitrate_mbps * 2}M"]
         for key, value in (metadata or {}).items():
             cmd += ["-metadata", f"{key}={value}"]
         # use_metadata_tags: the mov/mp4 muxer otherwise only writes a fixed
@@ -218,6 +230,13 @@ def build_video(frames, out_path: Path, *, fps, crf, deflicker_size, max_height=
             part_path.unlink(missing_ok=True)
             raise
     log.info("wrote %s (%d frames, %.1f MB)", out_path, len(frames), size_mb)
+
+
+def max_bitrate_mbps(cfg):
+    """daily_video.max_bitrate_mbps, shared by every video kind the way
+    max_height is. Absent means the 30 Mbps default, not uncapped: installs
+    that predate the setting were producing videos too heavy to stream."""
+    return cfg["daily_video"].get("max_bitrate_mbps", DEFAULT_MAX_BITRATE_MBPS)
 
 
 def usable_frame(path) -> bool:
@@ -461,6 +480,7 @@ def build_camera_day(cfg, cam, date, season, progress=None):
             fps=d["fps"], crf=d["crf"],
             deflicker_size=d.get("deflicker_size", 0),
             max_height=d.get("max_height", 0),
+            max_bitrate_mbps=max_bitrate_mbps(cfg),
             preset=d.get("preset", "medium"),
             metadata=season,
             progress=progress,
@@ -769,6 +789,7 @@ def build_event_videos(cfg, date, camera=None):
                     # e.g. snow has no lightning to protect
                     deflicker_size=deflicker_by_tag.get(tag, default_deflicker),
                     max_height=cfg["daily_video"].get("max_height", 0),
+                    max_bitrate_mbps=max_bitrate_mbps(cfg),
                     preset=ev.get("preset", "medium"),
                     metadata=season,
                 )
@@ -842,6 +863,7 @@ def build_camera_year(cfg, cam, year, args, progress=None):
         fps=y["fps"], crf=y["crf"],
         deflicker_size=y.get("deflicker_size", 0),
         max_height=cfg["daily_video"].get("max_height", 0),
+        max_bitrate_mbps=max_bitrate_mbps(cfg),
         preset=y.get("preset", "medium"),
         progress=progress,
     )

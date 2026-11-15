@@ -336,6 +336,14 @@ def validate_config(cfg):
         elif val < 0:
             problems.append(f"events.{key} must not be negative")
 
+    # Set by the Config page's Video quality slider; 0 = uncapped.
+    bitrate = (cfg.get("daily_video") or {}).get("max_bitrate_mbps")
+    if bitrate is not None:
+        if isinstance(bitrate, bool) or not isinstance(bitrate, (int, float)):
+            problems.append("daily_video.max_bitrate_mbps must be a number")
+        elif bitrate < 0:
+            problems.append("daily_video.max_bitrate_mbps must not be negative (0 = uncapped)")
+
     # events_video: only the new/changed keys — adding checks for pre-existing
     # fps/crf/preset would be scope creep, a behaviour change unrelated to
     # this feature.
