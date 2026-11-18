@@ -114,6 +114,8 @@ Developed and tested against a Reolink **RLN36** NVR with **TrackMix WiFi**,
 **OMVI 3i**, and **Video Doorbell WiFi** cameras (HTTPS, self-signed certs).
 Other models exposing the same API should work; reports welcome.
 
+Reported working by users: **E1 Outdoor PoE** (E560P) and **RLC-510WA** (W320).
+
 > **Note on multi-lens cameras:** an NVR exposes one feed per camera. To
 > capture a second lens (e.g. a dual-lens unit's wide + tele), address that
 > camera directly and add each lens as its own `channel`.
